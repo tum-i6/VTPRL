@@ -1,0 +1,3 @@
+[submodule "external/stable-baselines3"]
+	path = external/stable-baselines3
+	url = https://github.com/danielhettegger-rl/stable-baselines3.git
