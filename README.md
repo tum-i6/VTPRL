@@ -1,7 +1,5 @@
-	
- <div align="center">
+
 ![image](/resources/sim_ai4di_image.png?raw=true)
-</div>
 
 # Main
 
