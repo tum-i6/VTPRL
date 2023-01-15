@@ -19,8 +19,8 @@
         <float>90</float>
         <float>0</float>
       </CameraRotation> 
-<!--     </CameraParameters>
-    <CameraParameters>
+    </CameraParameters>
+<!--     <CameraParameters>
       <CameraPosition>
         <float>2.503</float>
         <float>2.76</float>
