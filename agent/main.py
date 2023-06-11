@@ -20,6 +20,7 @@ def get_env(config_dict, env_dict):
                                 ik_by_sns=env_dict['linear_motion_conservation'],
                                 enable_render=env_dict['enable_dart_viewer'],
                                 state_type=config_dict['state'],
+                                with_gripper=config_dict['gripper'],
                                 env_id=id)
         return env
 
@@ -55,10 +56,10 @@ if __name__ == "__main__":
     # to test dart-enabled environments
 
     # control_kp = 1.0 / env.observation_space.high[0]
-    #
+    
     # if config_dict['seed'] is not None:
     #     env.seed(config_dict['seed'])
-    #
+    
     # obs = env.reset()
     # episode_rewards = []
     # for _ in range(100):
@@ -78,6 +79,6 @@ if __name__ == "__main__":
     #             episode_rewards.append(cum_reward)
     #             break
     # mean_reward = np.mean(episode_rewards)
-    #
+    
     # print(mean_reward)
 

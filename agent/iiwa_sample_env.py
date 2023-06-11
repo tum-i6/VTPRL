@@ -45,13 +45,14 @@ class IiwaSampleEnv(IiwaDartUnityEnv):
     MAX_EE_ROT_ACC = np.full(3, 1.2)  # [rad/s^2] --- not optimized values
 
     def __init__(self, max_ts, orientation_control, use_ik, ik_by_sns,
-                 enable_render, state_type, env_id=0):
+                 enable_render, state_type, with_gripper=True, env_id=0):
 
         # range of vertical, horizontal pixels for the DART viewer
         viewport = (0, 0, 500, 500)
 
         self.state_type = state_type
         self.reset_flag = False
+        self.with_gripper = with_gripper
 
         # the init of the parent class should be always called, this will in the end call reset() once
         super().__init__(max_ts=max_ts, orientation_control=orientation_control,
@@ -78,7 +79,8 @@ class IiwaSampleEnv(IiwaDartUnityEnv):
             if self.ORIENTATION_CONTROL:
                 # and the three rotations around each of the axis
                 self.action_space_dimension += 3
-        self.action_space_dimension += 1  # gripper velocity
+        if self.with_gripper:
+            self.action_space_dimension += 1  # gripper velocity
 
         # Variables below exist in the parent class, hence the names should not be changed
         tool_length = 0.2  # [m] allows for some tolerances in maximum observation
@@ -258,8 +260,8 @@ class IiwaSampleEnv(IiwaDartUnityEnv):
            or complete pose 'rx,ry,rz,x,y,z') to velocities in the joint space of the kinematic chain (j1,...,j7)
 
            :param action: The action vector decided by the RL agent, acceptable range: [-1,+1]
-                          It should be a numpy array with the following shape: [arm_action, tool_action]
-                          tool_action is always a dim-1 scalar value representative of the normalized gripper velocity
+                          It should be a numpy array with the following shape: [arm_action] or [arm_action, tool_action]
+                          in case of with_gripper=True, tool_action is always a dim-1 scalar value representative of the normalized gripper velocity
                           arm_action has different dim based on each case of control level:
                           in case of use_ik=False -> is dim-7 representative of normalized joint velocities
                           in case of use_ik=True -> there would be two cases:
@@ -267,24 +269,29 @@ class IiwaSampleEnv(IiwaDartUnityEnv):
                           orientation_control=True -> of dim-6: Normalized EE Rotational velocity in x,y,z DART coord
                           followed by Normalized EE Cartesian velocity in x,y,z DART coord
 
-           :return: the command to send to the Unity simulator including joint velocities and gripper position
+           :return: the command to send to the Unity simulator including joint velocities and possibly gripper position
         """
 
         # the lines below should stay as it is
         self.action_state = action
         action = np.clip(action, -1., 1.)
 
+        if self.with_gripper:
+            # This updates the gripper target by accumulating the tool velocity from the action vector
+            tool_action = action[-1]
+            self.tool_target = np.clip((self.tool_target + tool_action), 0.0, 90.0)
+            # This removes the gripper velocity from the action vector for inverse kinematics calculation
+            action = action[:-1]
+
         if self.USE_IK:
-            task_vel = self.MAX_EE_VEL * action[:-1]
+            task_vel = self.MAX_EE_VEL * action
             joint_vel = self._dart_calc_inv_kinematics(task_vel)
         else:
-            joint_vel = self.MAX_JOINT_VEL * action[:-1]
+            joint_vel = self.MAX_JOINT_VEL * action
 
-        # This updates the gripper target by accumulating the tool velocity from the action vector
-        tool_action = action[-1]
-        self.tool_target = np.clip((self.tool_target + tool_action), 0.0, 90.0)
-
-        unity_action = np.append(joint_vel, [float(self.tool_target)])
+        unity_action = joint_vel
+        if self.with_gripper:
+            unity_action = np.append(unity_action, [float(self.tool_target)])
 
         return unity_action
 
@@ -303,8 +310,8 @@ class IiwaSampleEnv(IiwaDartUnityEnv):
                 'target_orientation': indices [23:26],
                 'object_position': indices [26:29],
                 'object_orientation': indices [29:32],
-                'gripper_position': indices [32:33],
-                'collision_flag': indices [33:34],
+                'gripper_position': indices [32:33], ---(it is optional, in case a gripper is enabled)
+                'collision_flag': indices [33:34], ---([32:33] in case of without gripper)
 
            :return: The state, reward, episode termination flag (done), and an empty info dictionary
         """
@@ -379,7 +386,10 @@ class IiwaSampleEnv(IiwaDartUnityEnv):
         object_positions_mapped = [object_X, object_Y, object_Z, object_RX, object_RY, object_RZ]
 
         self.reset_state = active_joints + joint_positions + joint_velocities\
-                           + target_positions_mapped + object_positions_mapped + [self.tool_target]
+                           + target_positions_mapped + object_positions_mapped
+        
+        if self.with_gripper:
+            self.reset_state = self.reset_state + [self.tool_target]
 
         self.reset_counter += 1
         self.reset_flag = False
@@ -403,7 +413,8 @@ class IiwaSampleEnv(IiwaDartUnityEnv):
             action_rot = coeff_kp_rot * self.get_rot_error()
             action = np.concatenate(([action_rot, action]))
 
-        tool_vel = 0.0  # no gripper movement is necessary for the reaching task
-        action = np.append(action, [tool_vel])
+        if self.with_gripper:
+            tool_vel = 0.0  # zero velocity means no gripper movement - should be adapted for the task
+            action = np.append(action, [tool_vel])
 
         return action

@@ -63,6 +63,9 @@ class Config:
             # or 'av' for angles and velocities
             'state': 'a',
 
+            # whether to enable gripper for manipulation tasks such as grasping or not
+            'gripper': False,
+
             # number of environments to run in parallel
             'num_envs': 16,
         }
