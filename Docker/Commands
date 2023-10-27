@@ -1,0 +1,31 @@
+# Build a docker image with all dependencies for Linux running the command below from the repo root folder
+# Dependency: Docker, Nvidia-Docker, Nvidia cuda-enabled GPU. if you do not have Nvidia GPU you might use also the Dockerfile_Windows for building image on Linux)
+docker build . -t cmlr_image -f Docker/Dockerfile
+
+# Build a docker image with all dependencies for Windows running the command below from the repo root folder on Windows. 
+# Dependencies: Docker for Windows with Linux containers enabled. Only difference from Dockerfile is the root image it starts from as Docker Windows does not support GPU acceleration from inside Docker
+docker build . -t cmlr_image -f Docker/Dockerfile_Windows
+
+# Starting the simulator on a fake display of X server on the AI4DI server from the shell:
+DISPLAY=:3 ./ManipulatorEnvironment_Linux.x86_64
+
+# These commands are useful to run before starting the container in case you want to start the simulator from a shell inside the container (not possible for Windows, works on AI4DI servers, you can set it on your local machines or on VM from LRZ CC after installing X server) - it allows local connections to your X server
+export DISPLAY=":3"
+xhost + local:
+
+# After building create a container with the built image running the command below from the repo root folder. Same for Windows, but remove the --gpus parameter as it is not supported on Windows
+docker run  --rm -it \
+            --name cmlr_container \
+            --gpus all \
+            -e DISPLAY \
+            -v $(pwd):/home/[repo_name]:rw \
+            -v $(pwd)/external/stable-baselines3:/home/repos/stable-baselines3:ro \
+            --privileged \
+            --net="host" \
+            cmlr_image:latest \
+            bash
+
+# On local machines you can start the simulator outside of docker as well, cd to the repository root folder inside the docker container and run python3 agant/main.py to connect to the simulator and start training. 
+
+# If there are errors see "Troubleshooting" section
+

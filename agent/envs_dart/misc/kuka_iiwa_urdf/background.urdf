@@ -1,0 +1,156 @@
+<?xml version="1.0"?>
+<robot name="background_skeleton">
+    <link name="world" />
+    <link name="background_link1">
+        <inertial>
+            <mass value="1.0" />
+            <origin xyz="0 0 0" rpy="0 0 0" />
+            <inertia ixx="1.0" ixy="0" ixz="0" iyy="1.0" iyz="0" izz="1.0" />
+        </inertial>
+        <visual>
+            <origin xyz="0 0 0" rpy="0 0 0" />
+            <geometry>
+                <box size="100.0 100.0 0.05" />
+            </geometry>
+            <material name="FloorGray">
+              <color rgba="0.68 0.67 0.6 1.0"/>
+            </material>
+        </visual>
+        <collision group="default">
+            <origin xyz="0 0 0" rpy="0 0 0" />
+            <geometry>
+                <box size="100.0 100.0 0.05" />
+            </geometry>
+        </collision>
+    </link>
+    <link name="background_link2">
+        <inertial>
+            <mass value="1.0" />
+            <origin xyz="0 0 0" rpy="0 0 0" />
+            <inertia ixx="1.0" ixy="0" ixz="0" iyy="1.0" iyz="0" izz="1.0" />
+        </inertial>
+        <visual>
+            <origin xyz="0 0 0" rpy="0 0 0" />
+            <geometry>
+                <box size="100.0 100.0 0.05" />
+            </geometry>
+            <material name="FloorGray" />
+        </visual>
+        <collision group="default">
+            <origin xyz="0 0 0" rpy="0 0 0" />
+            <geometry>
+                <box size="100.0 100.0 0.05" />
+            </geometry>
+        </collision>
+    </link>
+    <link name="background_link3">
+        <inertial>
+            <mass value="1.0" />
+            <origin xyz="0 0 0" rpy="0 0 0" />
+            <inertia ixx="1.0" ixy="0" ixz="0" iyy="1.0" iyz="0" izz="1.0" />
+        </inertial>
+        <visual>
+            <origin xyz="0 0 0" rpy="0 0 0" />
+            <geometry>
+                <box size="100.0 100.0 0.05" />
+            </geometry>
+            <material name="FloorGray" />
+        </visual>
+        <collision group="default">
+            <origin xyz="0 0 0" rpy="0 0 0" />
+            <geometry>
+                <box size="100.0 100.0 0.05" />
+            </geometry>
+        </collision>
+    </link>
+    <link name="background_link4">
+        <inertial>
+            <mass value="1.0" />
+            <origin xyz="0 0 0" rpy="0 0 0" />
+            <inertia ixx="1.0" ixy="0" ixz="0" iyy="1.0" iyz="0" izz="1.0" />
+        </inertial>
+        <visual>
+            <origin xyz="0 0 0" rpy="0 0 0" />
+            <geometry>
+                <box size="100.0 100.0 0.05" />
+            </geometry>
+            <material name="FloorGray" />
+        </visual>
+        <collision group="default">
+            <origin xyz="0 0 0" rpy="0 0 0" />
+            <geometry>
+                <box size="100.0 100.0 0.05" />
+            </geometry>
+        </collision>
+    </link>
+    <link name="background_link5">
+        <inertial>
+            <mass value="1.0" />
+            <origin xyz="0 0 0" rpy="0 0 0" />
+            <inertia ixx="1.0" ixy="0" ixz="0" iyy="1.0" iyz="0" izz="1.0" />
+        </inertial>
+        <visual>
+            <origin xyz="0 0 0" rpy="0 0 0" />
+            <geometry>
+                <box size="100.0 100.0 0.05" />
+            </geometry>
+            <material name="FloorGray" />
+        </visual>
+        <collision group="default">
+            <origin xyz="0 0 0" rpy="0 0 0" />
+            <geometry>
+                <box size="100.0 100.0 0.05" />
+            </geometry>
+        </collision>
+    </link>
+    <link name="background_link6">
+        <inertial>
+            <mass value="1.0" />
+            <origin xyz="0 0 0" rpy="0 0 0" />
+            <inertia ixx="1.0" ixy="0" ixz="0" iyy="1.0" iyz="0" izz="1.0" />
+        </inertial>
+        <visual>
+            <origin xyz="0 0 0" rpy="0 0 0" />
+            <geometry>
+                <box size="100.0 100.0 0.05" />
+            </geometry>
+            <material name="FloorGray" />
+        </visual>
+        <collision group="default">
+            <origin xyz="0 0 0" rpy="0 0 0" />
+            <geometry>
+                <box size="100.0 100.0 0.05" />
+            </geometry>
+        </collision>
+    </link>
+    <joint name="background_joint1" type="fixed">
+        <origin xyz="-50 0 0" rpy="0 1.57079632679 0" />
+        <parent link="world" />
+        <child link="background_link1" />
+    </joint>
+    <joint name="background_joint2" type="fixed">
+        <origin xyz="0 -50 0" rpy="1.57079632679 0 0" />
+        <parent link="world" />
+        <child link="background_link2" />
+    </joint>
+    <joint name="background_joint3" type="fixed">
+        <origin xyz="+50 0 0" rpy="0 1.57079632679 0" />
+        <parent link="world" />
+        <child link="background_link3" />
+    </joint>
+    <joint name="background_joint4" type="fixed">
+        <origin xyz="0 +50 0" rpy="1.57079632679 0 0" />
+        <parent link="world" />
+        <child link="background_link4" />
+    </joint>
+    <joint name="background_joint5" type="fixed">
+        <origin xyz="0 0 -50" rpy="0 0 1.57079632679" />
+        <parent link="world" />
+        <child link="background_link5" />
+    </joint>
+    <joint name="background_joint6" type="fixed">
+        <origin xyz="0 0 +50" rpy="0 0 1.57079632679" />
+        <parent link="world" />
+        <child link="background_link6" />
+    </joint>
+</robot>
