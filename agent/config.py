@@ -43,20 +43,20 @@ class Config:
 
             # when True: the task can be also rendered in the DART viewer
             # Important: Use it when evaluating an agent (e.g. checkpoint) . Only for debugging when training an RL agent ('simulation_mode': 'train') - set to False in this case
-            # Advanced:  with 'weights & biases', you can log videos during training                   
-            'enable_dart_viewer': True,
+            # Advanced:  with 'weights & biases', you can log videos during training
+            'enable_dart_viewer': False,
 
-            # enable task monitor to visualize states, velocities, agent actions, reward of the robot. 
+            # enable task monitor to visualize states, velocities, agent actions, reward of the robot.
             # 'enable_dart_viewer' should be set to True
-            'task_monitor': True,
+            'task_monitor': False,
 
             # whether to load additional objects in the DART simulation and viewer - ground, background, etc.
-            'with_objects': True,
+            'with_objects': False,
 
             # how to spawn the red targets in the dart simulation
             # Options: 'random', 'random_joint_level', 'import', 'fixed', 'None'
             # import   -> import targets from a .csv file (see 'target_path' below)
-            # None     -> default behaviour. Can be adapted: See iiwa_sample_dart_unity_env.py, create_target() method
+            # None     -> default behaviour. Can be adapted: See iiwa_sample_dart_unity_env, create_target() method
             'target_mode': "random_joint_level",
 
             # when target_mode is 'import': load targets from a .csv file
@@ -146,12 +146,12 @@ class Config:
             #                                the UNITY behaviour may be unstable when having a 0.0 safety limit with high velocities         #
             #                                e.g. nan tensor joint error -> the robot is in an invalid configuration - reset the manipulator #                
             ##################################################################################################################################
-            'joints_safety_limit': 0.0,
-            'max_joint_vel':       20,   # Joint space
-            'max_ee_cart_vel':     10.0, # Task space -- Not optimized values for sim2real transfer 
-            'max_ee_cart_acc':     3.0,
-            'max_ee_rot_vel':      4.0,
-            'max_ee_rot_acc':      1.2
+            'joints_safety_limit': 0.0,  # [deg]
+            'max_joint_vel':       20.0, # [deg/s] - Joint space
+            'max_ee_cart_vel':     10.0, # [m/s]   - Task space  -- Not optimized values for sim2real transfer 
+            'max_ee_cart_acc':     3.0,  # [m/s^2]
+            'max_ee_rot_vel':      4.0,  # [rad/s]
+            'max_ee_rot_acc':      1.2   # [rad/s^2]
         }
 
         return config_dict

@@ -37,7 +37,7 @@ def get_env(config_dict, dart_env_dict, reward_dict, log_dir):
             env = IiwaJointVelEnv(max_ts=dart_env_dict['max_time_step'], id=id, config=config_dict)
 
         # Reaching the red target sample env
-        # task-space with dart or joint joint space control
+        # task-space with dart or joint space control
         # model-based control with P-controller available
         elif env_key == 'iiwa_sample_dart_unity_env':
             env = IiwaSampleEnv(max_ts=dart_env_dict['max_time_step'], orientation_control=dart_env_dict['orientation_control'],
@@ -60,7 +60,7 @@ def get_env(config_dict, dart_env_dict, reward_dict, log_dir):
     num_envs = config_dict['num_envs']
     env = [create_env for i in range(num_envs)]
     env = SimulatorVecEnv(env, config_dict, manual_actions_dict=None, reward_dict=reward_dict) # Set vectorized env
-    env = VecMonitor(env, log_dir, info_keywords=("success",))                                 # Monitor envs 
+    env = VecMonitor(env, log_dir, info_keywords=("success",))                                 # Monitor envs
 
     return env
 

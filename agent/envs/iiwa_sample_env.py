@@ -29,7 +29,7 @@ class IiwaSampleEnv(IiwaDartUnityEnv):
     def __init__(self, max_ts, orientation_control, use_ik, ik_by_sns,
                  state_type, enable_render=False, task_monitor=False, 
                  with_objects=False, target_mode="random", target_path="/misc/generated_random_targets/cart_pose_7dof.csv", goal_type="target",
-                 joints_safety_limit=0, max_joint_vel=20, max_ee_cart_vel=10.0, max_ee_cart_acc =3.0, max_ee_rot_vel=4.0, max_ee_rot_acc=1.2,
+                 joints_safety_limit=0, max_joint_vel=20.0, max_ee_cart_vel=10.0, max_ee_cart_acc =3.0, max_ee_rot_vel=4.0, max_ee_rot_acc=1.2,
                  random_initial_joint_positions=False, initial_positions=[0, 0, 0, 0, 0, 0, 0],
                  robotic_tool="3_gripper", env_id=0):
 
@@ -52,7 +52,7 @@ class IiwaSampleEnv(IiwaDartUnityEnv):
 
         # Initial positions flag for the manipulator after reseting. 1 means different than the default vertical position #
         # In that case, the environments should terminate at the same time step due to UNITY synchronization              #
-        if((self.initial_positions is None or np.count_nonzero(initial_positions) != 0) and self.random_initial_joint_positions == False):
+        if((self.initial_positions is None or np.count_nonzero(initial_positions) == 0) and self.random_initial_joint_positions == False):
             self.flag_zero_initial_positions = 0
         else:
             self.flag_zero_initial_positions = 1
@@ -381,8 +381,8 @@ class IiwaSampleEnv(IiwaDartUnityEnv):
             # Reset when we have a collision only when we spawn the robot to the default #
             # vertical position, else wait the episode to finish                         #
             # Important: you may want to reset anyway depending on your task - adapt     #
-            if(self.flag_zero_initial_positions == 0): 
-                self.reset_flag = True 
+            if(self.flag_zero_initial_positions == 0):
+                self.reset_flag = True
 
         # the method below handles synchronizing states of the DART kinematic chain with the #
         # observation from Unity hence it should be always called                            #
