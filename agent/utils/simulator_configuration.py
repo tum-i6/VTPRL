@@ -73,6 +73,32 @@ def update_simulator_configuration(config, xml_file):
     if(oldFieldText != field.text):
         field.set('updated', 'yes')
 
+    field = root.find('ObservationImageEncoding')
+    oldFieldText = field.text
+    newFieldText = config.config_dict["image_encoding"]
+    if(newFieldText != "JPG" and newFieldText != "PNG"):
+        print("Given ObservationImageEncoding field is invalid")
+    else:
+        field.text = newFieldText
+        if(oldFieldText != field.text):
+            field.set('updated', 'yes')
+
+    field = root.find('ObservationImageQuality')
+    oldFieldText = field.text
+    field.text = str(config.config_dict["image_quality"])
+    if(oldFieldText != field.text):
+        field.set('updated', 'yes')
+
+    field = root.find('EnableGrayscale')
+    oldFieldText = field.text
+    newFieldText = str(config.config_dict["image_grayscale"]).lower()
+    if(newFieldText != "true" and newFieldText != "false"):
+        print("Given EnableGrayscale field is invalid")
+    else:
+        field.text = newFieldText
+        if(oldFieldText != field.text):
+            field.set('updated', 'yes')
+
     # Camera position #
     field = root.find('ObservationCameras')[0][0]
     x = field[0]
@@ -140,28 +166,58 @@ def update_simulator_configuration(config, xml_file):
         field.set('updated', 'yes')
 
     # Box #
-    try: # Might not be availavle depending on the simulator version
-        field = root.find('ItemSizeX')
+    try: # Might not be available depending on the simulator version
+        item = root.find('Items')[0]
+        item_size = item.find('ItemSize')
+
+        field = item_size.find('x')
         oldFieldText = field.text
         field.text = str(config.goal_dict["box_dim"][0])
         if(oldFieldText != field.text):
             field.set('updated', 'yes')
 
-        field = root.find('ItemSizeY')
+        field = item_size.find('y')
         oldFieldText = field.text
         field.text = str(config.goal_dict["box_dim"][1])
         if(oldFieldText != field.text):
             field.set('updated', 'yes')
 
-        field = root.find('ItemSizeZ')
+        field = item_size.find('z')
         oldFieldText = field.text
         field.text = str(config.goal_dict["box_dim"][2])
         if(oldFieldText != field.text):
             field.set('updated', 'yes')
+
+        field = item.find('RandomizeItemCenterOfMass')
+        oldFieldText = field.text
+        newFieldText = str(config.randomization_dict["randomize_box_com"]).lower()
+        if(newFieldText != "true" and newFieldText != "false"):
+            print("Given RandomizeItemCenterOfMass field is invalid")
+        else:
+            field.text = newFieldText
+            if(oldFieldText != field.text):
+                field.set('updated', 'yes')
+
     except:
         pass
 
     # Randomization #
+    field = root.find('RandomSeed')
+    oldFieldText = field.text
+    field.text = str(config.config_dict["seed"])
+    if(oldFieldText != field.text):
+        field.set('updated', 'yes')
+
+    field = root.find('RandomizeEnvironmentPhysics')
+    oldFieldText = field.text
+    newFieldText = str(config.randomization_dict["randomize_physics"]).lower()
+    if(newFieldText != "true" and newFieldText != "false"):
+        print("Given RandomizeEnvironmentPhysics field is invalid")
+    else:
+        field.text = newFieldText
+        if(oldFieldText != field.text):
+            field.set('updated', 'yes')
+
     field = root.find('RandomizeLatency')
     oldFieldText = field.text
     newFieldText = str(config.randomization_dict["randomize_latency"]).lower()

@@ -14,9 +14,8 @@ Note: Coordinates in the Unity simulator are different from the ones in DART whi
       The mapping is [X, Y, Z] of Unity is [-y, z, x] of DART
 """
 
-import math
 import numpy as np
-from scipy.spatial.transform import Rotation as R
+import os
 
 from gym import spaces
 from envs_dart.iiwa_dart_unity import IiwaDartUnityEnv
@@ -29,33 +28,14 @@ class IiwaSampleEnv(IiwaDartUnityEnv):
     def __init__(self, max_ts, orientation_control, use_ik, ik_by_sns,
                  state_type, enable_render=False, task_monitor=False, 
                  with_objects=False, target_mode="random", target_path="/misc/generated_random_targets/cart_pose_7dof.csv", goal_type="target",
-                 joints_safety_limit=0, max_joint_vel=20.0, max_ee_cart_vel=10.0, max_ee_cart_acc =3.0, max_ee_rot_vel=4.0, max_ee_rot_acc=1.2,
+                 joints_safety_limit=0.0, max_joint_vel=20.0, max_ee_cart_vel=10.0, max_ee_cart_acc =3.0, max_ee_rot_vel=4.0, max_ee_rot_acc=1.2,
                  random_initial_joint_positions=False, initial_positions=[0, 0, 0, 0, 0, 0, 0],
                  robotic_tool="3_gripper", env_id=0):
 
         # range of vertical, horizontal pixels for the DART viewer
         viewport = (0, 0, 500, 500)
 
-        self.state_type = state_type
-        self.reset_flag = False
         self.goal_type = goal_type # Target or box 
-
-        # Collision happened for this env when set to 1. In case the manipulator is spanwed in a different position than the #
-        # default vertical, for the remaining of the episode zero velocities are sent to UNITY                               #
-        self.collided_env = 0
-
-        ################################
-        # Set initial joints positions #
-        ################################
-        self.random_initial_joint_positions = random_initial_joint_positions                                                 # True, False
-        self.initial_positions = np.asarray(initial_positions, dtype=float) if initial_positions is not None else None
-
-        # Initial positions flag for the manipulator after reseting. 1 means different than the default vertical position #
-        # In that case, the environments should terminate at the same time step due to UNITY synchronization              #
-        if((self.initial_positions is None or np.count_nonzero(initial_positions) == 0) and self.random_initial_joint_positions == False):
-            self.flag_zero_initial_positions = 0
-        else:
-            self.flag_zero_initial_positions = 1
 
         ##############################################################################
         # Set Limits -> Important: Must be set before calling the super().__init__() #
@@ -90,9 +70,27 @@ class IiwaSampleEnv(IiwaDartUnityEnv):
         ##################################################################################
 
         super().__init__(max_ts=max_ts, orientation_control=orientation_control, use_ik=use_ik, ik_by_sns=ik_by_sns,
-                         robotic_tool=robotic_tool, enable_render=enable_render, task_monitor=task_monitor,
+                         state_type=state_type, robotic_tool=robotic_tool, enable_render=enable_render, task_monitor=task_monitor,
                          with_objects=with_objects, target_mode=target_mode, target_path=target_path, viewport=viewport,
                          random_initial_joint_positions=random_initial_joint_positions, initial_positions=initial_positions, env_id=env_id)
+
+        # Collision happened for this env when set to 1. In case the manipulator is spanwed in a different position than the #
+        # default vertical, for the remaining of the episode zero velocities are sent to UNITY                               #
+        self.collided_env = 0
+        self.reset_flag = False
+
+        ################################
+        # Set initial joints positions #
+        ################################
+        self.random_initial_joint_positions = random_initial_joint_positions                                                 # True, False
+        self.initial_positions = np.asarray(initial_positions, dtype=float) if initial_positions is not None else None
+
+        # Initial positions flag for the manipulator after reseting. 1 means different than the default vertical position #
+        # In that case, the environments should terminate at the same time step due to UNITY synchronization              #
+        if((self.initial_positions is None or np.count_nonzero(initial_positions) == 0) and self.random_initial_joint_positions == False):
+            self.flag_zero_initial_positions = 0
+        else:
+            self.flag_zero_initial_positions = 1
 
         # Clip gripper action to this limit #
         if(self.robotic_tool.find("3_gripper") != -1):
@@ -102,10 +100,35 @@ class IiwaSampleEnv(IiwaDartUnityEnv):
         else:
             self.gripper_clip = 90
 
+        self.transform_ee_initial = None
+        self.save_image = False  # change it to True to save images received from Unity into jpg files
+
+        if self.save_image:
+            self.save_image_folder = self.get_save_image_folder()
+
         # Some attributes that are initialized in the parent class:
         # self.reset_counter --> keeps track of the number of resets performed
         # self.reset_state   --> reset vector for initializing the Unity simulator at each episode
         # self.tool_target   --> initial position for the gripper state
+
+        # helper methods that can be called from the parent class:
+        # self._convert_vector_dart_to_unity(vector) -- transforms a [x, y, z] position vector
+        # self._convert_vector_unity_to_dart(vector)
+        # self._convert_rotation_dart_to_unity(matrix) -- transforms a 3*3 rotation matrix
+        # self._convert_rotation_unity_to_dart(matrix)
+        # self._convert_quaternion_dart_to_unity(quaternion) -- transforms a [w, x, y, z] quaternion vector
+        # self._convert_quaternion_unity_to_dart(quaternion)
+        # self._convert_angle_axis_dart_to_unity(vector) -- transforms a [rx, ry, rz] logmap representation of an Angle-Axis
+        # self._convert_angle_axis_unity_to_dart(vector)
+        # self._convert_pose_dart_to_unity(dart_pose, unity_in_deg=True) -- transforms a pose -- DART pose order [rx, ry, rz, x, y, z] -- Unity pose order [X, Y, Z, RX, RY, RZ]
+        # self.get_rot_error_from_quaternions(target_quat, current_quat) -- calculate the rotation error in angle-axis given orientation inputs in quaternion format
+        # self.get_rot_ee_quat()  -- DART coords -- get the orientation of the ee in quaternion
+        # self.get_ee_pos()       -- DART coords -- get the position of the ee
+        # self.get_ee_orient()    -- DART coords -- get the orientation of the ee in angle-axis
+        # self.get_ee_pose()      -- DART coords -- get the pose of the ee
+        # self.get_ee_pos_unity()           -- get the ee position in unity coords
+        # self.get_ee_orient_unity()        -- get the ee orientation in angle-axis format in unity coords
+        # self.get_ee_orient_euler_unity()  -- get the ee orientation in XYZ euler angles in unity coords
 
         # the lines below should stay as it is
         self.MAX_EE_VEL = self.MAX_EE_CART_VEL
@@ -123,7 +146,7 @@ class IiwaSampleEnv(IiwaDartUnityEnv):
                 # and the three rotations around each of the axis
                 self.action_space_dimension += 3
 
-        if self.robotic_tool.find("gripper") != -1:
+        if self.with_gripper:
             self.action_space_dimension += 1  # gripper velocity
 
         # Variables below exist in the parent class, hence the names should not be changed
@@ -135,32 +158,72 @@ class IiwaSampleEnv(IiwaDartUnityEnv):
 
         high = np.empty(0)
         low = np.empty(0)
+        self.observation_indices = {'obs_len': 0}
+
         if orientation_control:
             # rx,ry,rz of TCP: maximum orientation in radians without considering dexterous workspace
             ee_rot_high = np.full(3, np.pi)
             # observation space is distance to target orientation (rx,ry,rz), [rad]
             high = np.append(high, ee_rot_high)
             low = np.append(low, -ee_rot_high)
+            self.observation_indices['ee_rot'] = self.observation_indices['obs_len']
+            self.observation_indices['obs_len'] += 3
 
         # and distance to target position (dx,dy,dz), [m]
         high = np.append(high, ee_pos_high - ee_pos_low)
         low = np.append(low, -(ee_pos_high - ee_pos_low))
+        self.observation_indices['ee_pos'] = self.observation_indices['obs_len']
+        self.observation_indices['obs_len'] += 3
 
         # and joint positions [rad] and possibly velocities [rad/s]
         if 'a' in self.state_type:
             high = np.append(high, self.MAX_JOINT_POS)
             low = np.append(low, self.MIN_JOINT_POS)
+            self.observation_indices['joint_pos'] = self.observation_indices['obs_len']
+            self.observation_indices['obs_len'] += self.n_links
         if 'v' in self.state_type:
             high = np.append(high, self.MAX_JOINT_VEL)
             low = np.append(low, -self.MAX_JOINT_VEL)
+            self.observation_indices['joint_vel'] = self.observation_indices['obs_len']
+            self.observation_indices['obs_len'] += self.n_links
 
         # the lines below should stay as it is.                                                                        #
         # Important:        Adapt only if you use images as state representation, or your task is more complicated     #
-        # Good practice:    If you need to adapt several methods, inherit from IiwaSampleEnv and define your own class # 
-        self.action_space = spaces.Box(-np.ones(self.action_space_dimension), np.ones(self.action_space_dimension),
-                                       dtype=np.float32)
+        # Good practice:    If you need to adapt several methods, inherit from IiwaSampleEnv and define your own class #
+        self.action_space = spaces.Box(-np.ones(self.action_space_dimension, dtype=np.float32), np.ones(self.action_space_dimension, dtype=np.float32), dtype=np.float32)
 
-        self.observation_space = spaces.Box(low, high, dtype=np.float32)
+        self.observation_space = spaces.Box(low.astype(np.float32), high.astype(np.float32), dtype=np.float32)
+
+    def _update_env_flags(self):
+        ###########################################################################################
+        # collision happened or joints limits overpassed                                          #
+        # Important: in case the manipulator is spanwed in a different position than the default  #
+        #            vertical, for the remaining of the episode zero velocities are sent to UNITY #
+        #            see _send_actions_and_update() method in simulator_vec_env.py                #
+        ###########################################################################################
+        if self.unity_observation['collision_flag'] == 1.0 or self.joints_limits_violation():
+            self.collided_env = 1
+            # Reset when we have a collision only when we spawn the robot to the default #
+            # vertical position, else wait the episode to finish                         #
+            # Important: you may want to reset anyway depending on your task - adapt     #
+            if self.flag_zero_initial_positions == 0:
+                self.reset_flag = True
+
+    def get_save_image_folder(self):
+        path = os.path.dirname(os.path.realpath(__file__))
+        env_params_list = [self.max_ts, self.dart_sim.orientation_control, self.dart_sim.use_ik, self.dart_sim.ik_by_sns,
+                           self.state_type, self.target_mode, self.goal_type, self.random_initial_joint_positions,
+                           self.robotic_tool]
+        env_params = '_'.join(map(str, env_params_list))
+        idx = 0
+        while True:
+            save_place = path + '/misc/unity_image_logs/' + self.env_key + '_' + env_params + '_%s' % idx
+            if not os.path.exists(save_place):
+                save_place += '/'
+                os.makedirs(save_place)
+                break
+            idx += 1
+        return save_place
 
     def create_target(self):
         """
@@ -182,7 +245,7 @@ class IiwaSampleEnv(IiwaDartUnityEnv):
             while True:
                 x, y, z = np.random.uniform(-1.0, 1.0), np.random.uniform(-1.0, 1.0), 0.2
 
-                if 0.4 < math.sqrt(math.pow(x, 2) + math.pow(y, 2)) < 0.8:
+                if 0.4*0.4 < x*x + y*y < 0.8*0.8:
                     target = rx, ry, rz, x, y, z
                     break
 
@@ -198,10 +261,32 @@ class IiwaSampleEnv(IiwaDartUnityEnv):
         elif self.target_mode == "fixed":
             target = self._fixed_target()
 
+        elif self.target_mode == "fixed_joint_level":
+            target = self._fixed_target_gen_joint_level()
+
         else:
             target = [0, 0, 0, 0, -5, -200] # Dummy will be defined from the user later - advise define it in the reset() function 
 
         return target
+    
+    def generate_object(self):
+        """
+            defines the initial box position per episode
+            should always return rx,ry,rz,x,y,z in order,
+            i.e., first box orientation rx,ry,rz in radians, and then box position x,y,z in meters
+
+            :return: Cartesian pose of the initial box position in the task space
+        """
+
+        # depending on your task, positioning the object might be necessary, start from the following sample code
+        # sample code to position the object
+        # object_height = 0.1
+        # z = object_height / 2.0 + 0.005 # use it for tasks including object such as grasping or pushing
+        z = -1.0  # use it for tasks without object such as reaching
+        x, y = self.np_random.uniform(-1.0, 1.0), self.np_random.uniform(-1.0, 1.0)
+        rx, ry, rz = 0.0, 0.0, 0.0
+
+        return rx, ry, rz, x, y, z
 
     def get_state(self):
         """
@@ -219,9 +304,9 @@ class IiwaSampleEnv(IiwaDartUnityEnv):
         state = np.append(state, self.dart_sim.get_pos_error())
 
         if 'a' in self.state_type: # Append the joints position of the manipulator
-            state = np.append(state, self.dart_sim.chain.getPositions())
+            state = np.append(state, self.dart_sim.chain_get_positions())
         if 'v' in self.state_type:
-            state = np.append(state, self.dart_sim.chain.getVelocities())
+            state = np.append(state, self.dart_sim.chain_get_velocities())
 
         # the lines below should stay as it is
         self.observation_state = np.array(state)
@@ -237,18 +322,32 @@ class IiwaSampleEnv(IiwaDartUnityEnv):
            :return: reward for the policy training
         """
         # stands for reducing position error
-        reward = -self.dart_sim.get_pos_distance()
+        # reward = -self.dart_sim.get_pos_distance()
 
         # stands for reducing orientation error
-        if self.dart_sim.orientation_control:
-            reward -= 0.5 * self.dart_sim.get_rot_distance()
+        # if self.dart_sim.orientation_control:
+        #     reward -= 0.5 * self.dart_sim.get_rot_distance()
 
         # stands for avoiding abrupt changes in actions
-        reward -= 0.1 * np.linalg.norm(action - self.prev_action)
+        # reward -= 0.1 * np.linalg.norm(action - self.prev_action)
 
         # stands for shaping the reward to increase when target is reached to balance at the target
-        if self.get_terminal_reward():
-            reward += 1.0 * (np.linalg.norm(np.ones(self.action_space_dimension)) - np.linalg.norm(action))
+        # if self.get_terminal_reward():
+        #     reward += 1.0 * (np.linalg.norm(np.ones(self.action_space_dimension)) - np.linalg.norm(action))
+
+        # incremental reward implementation -- default
+        reward = 0.0
+
+        curr_pos_distance = self.dart_sim.get_pos_distance()
+        if self.prev_pos_distance is not None:
+            reward += self.prev_pos_distance - curr_pos_distance
+        self.prev_pos_distance = curr_pos_distance
+
+        if self.dart_sim.orientation_control:
+            curr_rot_distance = self.dart_sim.get_rot_distance()
+            if self.prev_rot_distance is not None:
+                reward += 0.3 * (self.prev_rot_distance - curr_rot_distance)
+            self.prev_rot_distance = curr_rot_distance
 
         # the lines below should stay as it is
         self.reward_state = reward
@@ -267,13 +366,14 @@ class IiwaSampleEnv(IiwaDartUnityEnv):
 
            :return: a boolean value representing if the target is reached within the defined threshold
         """
+        target_reached = False
         if self.dart_sim.get_pos_distance() < self.MIN_POS_DISTANCE:
             if not self.dart_sim.orientation_control:
-                return True
+                target_reached = True
             if self.dart_sim.get_rot_distance() < self.MIN_ROT_DISTANCE:
-                return True
+                target_reached = True
 
-        return False
+        return target_reached
 
     def get_terminal(self):
         """
@@ -310,11 +410,11 @@ class IiwaSampleEnv(IiwaDartUnityEnv):
 
         # the lines below should stay as it is
         self.action_state = action
-        action = np.clip(action, -1., 1.)
+        action = np.clip(action, self.action_space.low, self.action_space.high)
 
         # This updates the gripper target by accumulating the tool velocity from the action vector   #
         # Note: adapt if needed: e.g. accumulating the tool velocity may not work well for your task #
-        if self.robotic_tool.find("gripper") != -1:
+        if self.with_gripper:
             tool_action = action[-1]
             self.tool_target = np.clip((self.tool_target + tool_action), 0.0, self.gripper_clip)
 
@@ -330,7 +430,7 @@ class IiwaSampleEnv(IiwaDartUnityEnv):
 
         # append tool action #
         unity_action = joint_vel
-        if self.robotic_tool.find("gripper") != -1:
+        if self.with_gripper:
             unity_action = np.append(unity_action, [float(self.tool_target)])
 
         return unity_action
@@ -348,58 +448,41 @@ class IiwaSampleEnv(IiwaDartUnityEnv):
                                 'joint_values':       indices [0:7],
                                 'joint_velocities':   indices [7:14],
                                 'ee_position':        indices [14:17],
-                                'ee_orientation':     indices [17:20],
-                                'target_position':    indices [20:23],
-                                'target_orientation': indices [23:26],
-                                'object_position':    indices [26:29],
-                                'object_orientation': indices [29:32],
-                                'gripper_position':   indices [32:33], ---(it is optional, in case a gripper is enabled)
-                                'collision_flag':     indices [33:34], ---([32:33] in case of without gripper)
+                                'ee_orientation':     indices [17:21],
+                                'target_position':    indices [21:24],
+                                'target_orientation': indices [24:28],
+                                'object_position':    indices [28:31],
+                                'object_orientation': indices [31:35],
+                                'gripper_position':   indices [35:36], ---(it is optional, in case a gripper is enabled)
+                                'collision_flag':     indices [36:37], ---([35:36] in case of without gripper)
 
             :param time_step_update: whether to increase the time_step of the agent
 
             :return: The state, reward, episode termination flag (done), and an info dictionary
         """
-        # use commented lines below in case you'd like to save the image observations received from the Unity
-        # base64_bytes = observation['ImageData'][0].encode('ascii')
-        # image_bytes = base64.b64decode(base64_bytes)
-        # image = np.frombuffer(image_bytes, np.uint8)
-        # image = cv2.imdecode(image, cv2.IMREAD_GRAYSCALE)
-        # print(image.shape)
-        # cv2.imwrite("test.jpg", image)
-
         self.current_obs = observation['Observation']
 
-        ###########################################################################################
-        # collision happened or joints limits overpassed                                          #
-        # Important: in case the manipulator is spanwed in a different position than the default  #
-        #            vertical, for the remaining of the episode zero velocities are sent to UNITY #
-        #            see _send_actions_and_update() method in simulator_vec_env.py                #
-        ###########################################################################################
-        if(observation['Observation'][-1] == 1.0 or self.joints_limits_violation()):
-            self.collided_env = 1
-            # Reset when we have a collision only when we spawn the robot to the default #
-            # vertical position, else wait the episode to finish                         #
-            # Important: you may want to reset anyway depending on your task - adapt     #
-            if(self.flag_zero_initial_positions == 0):
-                self.reset_flag = True
+        if self.save_image:
+            self._unity_retrieve_observation_image(observation['ImageData'])
 
-        # the method below handles synchronizing states of the DART kinematic chain with the #
-        # observation from Unity hence it should be always called                            #
-        self._unity_retrieve_joint_values(observation['Observation'])
+        # the methods below handles synchronizing states of the DART kinematic chain with the observation from Unity
+        # hence it should be always called
+        self._unity_retrieve_observation_numeric(observation['Observation'])
+        self._update_dart_chain()
+        self._update_env_flags()
 
         # Class attributes below exist in the parent class, hence the names should not be changed
         if(time_step_update == True):
             self.time_step += 1
 
-        state = self.get_state()
-        reward = self.get_reward(self.action_state)
-        done = bool(self.get_terminal())
-        info = {"success": False}                   # Episode was successful. For now it is set at simulator_vec_env.py before reseting, step() method. Adapt if needed
+        self._state = self.get_state()
+        self._reward = self.get_reward(self.action_state)
+        self._done = bool(self.get_terminal())
+        self._info = {"success": False}                   # Episode was successful. For now it is set at simulator_vec_env.py before reseting, step() method. Adapt if needed
 
         self.prev_action = self.action_state
 
-        return state, reward, done, info
+        return self._state, self._reward, self._done, self._info
 
     def reset(self, temp=False):
         """
@@ -410,8 +493,9 @@ class IiwaSampleEnv(IiwaDartUnityEnv):
             :return: The initialized state
         """
         # takes care of resetting the DART chain and should stay as it is
-        state = super().reset(random_initial_joint_positions=self.random_initial_joint_positions, initial_positions=self.initial_positions)
+        self._state = super().reset(random_initial_joint_positions=self.random_initial_joint_positions, initial_positions=self.initial_positions)
 
+        self.transform_ee_initial = None
         self.collided_env = 0
         random_target = self.create_target() # draw a red target
 
@@ -419,9 +503,6 @@ class IiwaSampleEnv(IiwaDartUnityEnv):
         # should be always called in the beginning of each episode,
         # you might need to call it even during the episode run to change the reaching target for the IK-P controller
         self.set_target(random_target)
-
-        # initial position for the gripper state, accumulates the tool_action velocity received in update_action
-        self.tool_target = 0.0  # should be in range [0.0,90.0]
 
         # movement control of each joint can be disabled by setting zero for that joint index
         active_joints = [1] * 7
@@ -432,28 +513,25 @@ class IiwaSampleEnv(IiwaDartUnityEnv):
 
         # the mapping below for the target should stay as it is, unity expects orientations in degrees
         target_positions = self.dart_sim.target.getPositions().tolist()
+        target_positions_mapped = self._convert_pose_dart_to_unity(target_positions)
 
-        target_X, target_Y, target_Z = -target_positions[4], target_positions[5], target_positions[3]
-        target_RX, target_RY, target_RZ = np.rad2deg([-target_positions[1], target_positions[2], target_positions[0]])
-        target_positions_mapped = [target_X, target_Y, target_Z, target_RX, target_RY, target_RZ]
-
-        # spawn the object in UNITY: by default a green box is spawned     
-        # depending on your task, positioning the object might be necessary, start from the following sample code
-        # important: unity expects orientations in degrees
-        object_X, object_Y, object_Z = np.random.uniform(-1.0, 1.0), 0.05, np.random.uniform(-1.0, 1.0)
-        object_RX, object_RY, object_RZ = 0.0, 0.0, 0.0
-        object_positions_mapped = [object_X, object_Y, object_Z, object_RX, object_RY, object_RZ]
-
+        # spawn the object in UNITY: by default a green box is spawned
+        # mapping from DART to Unity coordinates -- Unity expects orientations in degrees
+        object_positions = self.generate_object()
+        object_positions_mapped = self._convert_pose_dart_to_unity(object_positions)
+  
         self.reset_state = active_joints + joint_positions + joint_velocities\
                            + target_positions_mapped + object_positions_mapped
  
-        if self.robotic_tool.find("gripper") != -1:
+        if self.with_gripper:
+            # initial position for the gripper state, accumulates the tool_action velocity received in update_action
+            self.tool_target = 0.0  # should be in range [0.0,90.0] for 3-gripper or [0.0,250.0] for 2-gripper
             self.reset_state = self.reset_state + [self.tool_target]
 
         self.reset_counter += 1
         self.reset_flag = False
 
-        return state
+        return self._state
 
     ####################
     # Commands related #
@@ -475,7 +553,7 @@ class IiwaSampleEnv(IiwaDartUnityEnv):
             action_rot = coeff_kp_rot * self.dart_sim.get_rot_error()
             action = np.concatenate(([action_rot, action]))
 
-        if self.robotic_tool.find("gripper") != -1:
+        if self.with_gripper:
             tool_vel = 0.0                         # zero velocity means no gripper movement - should be adapted for the task
             action = np.append(action, [tool_vel])
 

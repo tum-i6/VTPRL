@@ -99,24 +99,20 @@ class IiwaEndToEndPlanarGraspingEnv(IiwaNumericalPlanarGraspingEnv):
         ###############################################################################################
         self.current_obs_img = self.parse_image_observation(observation)
 
-        # Collision or joints limits overpassed                                      #
-        # env will not be reseted - wait until the end of the episoe for planar envs #
-        if observation['Observation'][-1] == 1.0 or self.joints_limits_violation():
-            self.collided_env = 1
-            self.reset_flag = True
-
-        # the method below handles synchronizing states of the DART kinematic chain with the #
-        # observation from Unity hence it should be always called                            #
-        self._unity_retrieve_joint_values(observation['Observation'])
+        # the methods below handles synchronizing states of the DART kinematic chain with the observation from Unity
+        # hence it should be always called
+        self._unity_retrieve_observation_numeric(observation['Observation'])
+        self._update_dart_chain()
+        self._update_env_flags()
 
         # Class attributes below exist in the parent class, hence the names should not be changed
         if(time_step_update == True):
             self.time_step += 1
 
-        state = self.get_state()
-        reward = self.get_reward(self.action_state)
-        done = bool(self.get_terminal())
-        info = {"success": False}                    # Episode was successful. It is set at simulator_vec_env.py before reseting
+        self._state = self.get_state()
+        self._reward = self.get_reward(self.action_state)
+        self._done = bool(self.get_terminal())
+        self._info = {"success": False}                    # Episode was successful. It is set at simulator_vec_env.py before reseting
 
         # Keep track the previous distance of the ee to the box - used in the reward function #
         self.prev_dist_ee_box_z = self.get_relative_distance_ee_box_z_unity()
@@ -125,7 +121,7 @@ class IiwaEndToEndPlanarGraspingEnv(IiwaNumericalPlanarGraspingEnv):
 
         self.prev_action = self.action_state
 
-        return state, reward, done, info
+        return self._state, self._reward, self._done, self._info
 
     def parse_image_observation(self, observation):
         """

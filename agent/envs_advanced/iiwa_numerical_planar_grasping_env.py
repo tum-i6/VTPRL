@@ -52,7 +52,7 @@ class IiwaNumericalPlanarGraspingEnv(IiwaSampleEnv):
 
         # the init of the parent class should be always called, this will in the end call reset() once
         super().__init__(max_ts=max_ts, orientation_control=orientation_control, use_ik=use_ik, ik_by_sns=ik_by_sns, state_type=state_type, enable_render=enable_render, task_monitor=task_monitor, 
-                         with_objects=with_objects, target_mode=target_mode,  goal_type=goal_type, joints_safety_limit=joints_safety_limit, max_joint_vel=max_joint_vel, max_ee_cart_vel=max_ee_cart_vel, 
+                         with_objects=with_objects, target_mode=target_mode, goal_type=goal_type, joints_safety_limit=joints_safety_limit, max_joint_vel=max_joint_vel, max_ee_cart_vel=max_ee_cart_vel, 
                          max_ee_cart_acc=max_ee_cart_acc, max_ee_rot_vel=max_ee_rot_vel, max_ee_rot_acc=max_ee_rot_acc, random_initial_joint_positions=random_initial_joint_positions, initial_positions=initial_positions,
                          robotic_tool=robotic_tool, env_id=env_id)
 
@@ -175,6 +175,12 @@ class IiwaNumericalPlanarGraspingEnv(IiwaSampleEnv):
         if self.task_monitor:
             self._create_task_monitor()
 
+    def _update_env_flags(self):
+        # Collision or joints limits overpassed                                       #
+        # env will not be reseted - wait until the end of the episode for planar envs #
+        if self.unity_observation['collision_flag'] == 1.0 or self.joints_limits_violation():
+            self.collided_env = 1
+
     def get_state(self):
         """
             defines the environment state:
@@ -204,7 +210,7 @@ class IiwaNumericalPlanarGraspingEnv(IiwaSampleEnv):
             state = np.append(state, np.array([dry_ee_b]))
 
         # Get joints positions #
-        joint_positions = self.dart_sim.chain.getPositions()
+        joint_positions = self.dart_sim.chain_get_positions()
         joint_positions = self.normalize_joints(joint_positions)
 
         # Add to state #
@@ -378,24 +384,20 @@ class IiwaNumericalPlanarGraspingEnv(IiwaSampleEnv):
 
         self.current_obs = observation['Observation']
 
-        # Collision or joints limits overpassed                                      #
-        # env will not be reseted - wait until the end of the episoe for planar envs #
-        if observation['Observation'][-1] == 1.0 or self.joints_limits_violation():
-            self.collided_env = 1
-
-        # the method below handles synchronizing states of the DART kinematic chain with the #
-        # observation from Unity hence it should be always called                            #
-        self._unity_retrieve_joint_values(observation['Observation'])
+        # the methods below handles synchronizing states of the DART kinematic chain with the observation from Unity
+        # hence it should be always called
+        self._unity_retrieve_observation_numeric(observation['Observation'])
+        self._update_dart_chain()
+        self._update_env_flags()
 
         # Class attributes below exist in the parent class, hence the names should not be changed
         if(time_step_update == True):
             self.time_step += 1
 
-        state = self.get_state()
-        reward = self.get_reward(self.action_state)
-        done = bool(self.get_terminal())
-        info = {"success": False}                   # Episode was successful. It is set at simulator_vec_env.py before reseting
-
+        self._state = self.get_state()
+        self._reward = self.get_reward(self.action_state)
+        self._done = bool(self.get_terminal())
+        self._info = {"success": False}                   # Episode was successful. It is set at simulator_vec_env.py before reseting
 
         # Keep track the previous distance of the ee to the box - used in the reward function #
         self.prev_dist_ee_box_z = self.get_relative_distance_ee_box_z_unity()
@@ -404,7 +406,7 @@ class IiwaNumericalPlanarGraspingEnv(IiwaSampleEnv):
 
         self.prev_action = self.action_state
 
-        return state, reward, done, info
+        return self._state, self._reward, self._done, self._info
 
     ###########
     # Monitor #
@@ -680,7 +682,7 @@ class IiwaNumericalPlanarGraspingEnv(IiwaSampleEnv):
 
             :return: x, y, z orientation of the ee in Euler
         """
-        rot_mat = self.dart_sim.chain.getBodyNode('iiwa_link_ee').getTransform().rotation()
+        rot_mat = self.dart_sim.transform_ee.rotation()
         rx, ry, rz = dart.math.matrixToEulerXYZ(rot_mat)
 
         rx_unity = -ry

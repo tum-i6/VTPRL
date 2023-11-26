@@ -90,12 +90,15 @@ class Config:
             # camera and images settings: gym and UNITY #
             'use_images':      False,                   # (*) Use images as state representation. Example code at 'iiwa_joint_vel', _retrieve_image() and 'iiwa_sample_dart_unity_env', update() functions
             'image_size':      128,                     # (*) Gym observation space dimension. See 'iiwa_joint_vel', __init__()
-            'camera_position': [0.0, 3.0, 0.0],         # (*) UNITY
-            'camera_rotation': [90.0, 0.0, -90.0],      # (*)
+            'image_encoding':  'JPG',                   # (*) Encoding of Unity observation image (PNG or JPG)
+            'image_quality':   50,                      # (*) Compression of the lossy JPG image
+            'image_grayscale': False,                   # (*) Unity observation image as Gray-scale instead of RGB
+            'camera_position': [0.0, 1.25, 1.3],        # (*) UNITY
+            'camera_rotation': [130.0, 0.0, 180.0],     # (*)
 
             # end effector
             'enable_end_effector': True,                # (*) Set to False if no tool is attached. Important: in that case, set 'robotic_tool' to None
-            'robotic_tool':        "3_gripper",         # (*) Options: '3_gripper', '2_gripper', 'calibration_pin', 'None' (string). Also, 'end_effector' should be set to True.
+            'robotic_tool':        "calibration_pin",   # (*) Options: '3_gripper', '2_gripper', 'calibration_pin', 'None' (string). Also, 'end_effector' should be set to True.
                                                         #               -> For 'iiwa_sample_joint_vel_env' select a gripper
 
             # GRPC, ROS or ZMQ
@@ -109,7 +112,7 @@ class Config:
             'port_number': '9092', # (*)
 
             # the seed used for generating pseudo-random sequences
-            'seed': 1235,
+            'seed': 256, # (*)
 
             # the state of the RL agent in case of numeric values for manipulators 'a' for angles only
             # or 'av' for angles and velocities
@@ -169,7 +172,7 @@ class Config:
             (*) Box dimensions - UNITY
         """
         goal_dict = {
-            'box_dim': [0.05, 0.1, 0.05]    # (*) x, y, z
+            'box_dim': [0.2, 0.2, 0.3]    # (*) X, Y, Z
         }
 
         return goal_dict
@@ -180,9 +183,11 @@ class Config:
         """
 
         randomization_dict = {
+            'randomize_physics':    False,  # (*) 
             'randomize_latency':    False,  # (*) 
             'randomize_torque':     False,  # (*)
             'randomize_appearance': False,  # (*)
+            'randomize_box_com':    False,  # (*) Randomize box center of mass
             'enable_shadows':       True,   # (*) Note: For sim2real transfer (images) try also False
             'shadow_type':          "Soft", # (*) Options: Soft/Hard
         }
