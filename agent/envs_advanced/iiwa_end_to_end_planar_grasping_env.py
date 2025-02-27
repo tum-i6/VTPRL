@@ -73,16 +73,16 @@ class IiwaEndToEndPlanarGraspingEnv(IiwaNumericalPlanarGraspingEnv):
                        always call this function, once you have send a new command to unity to synchronize the agent environment
 
             :param observation: is the observation received from the Unity simulator within its [X,Y,Z] coordinate system
-                                'joint_values': indices [0:7],
-                                'joint_velocities': indices [7:14],
-                                'ee_position': indices [14:17],
-                                'ee_orientation': indices [17:20],
-                                'target_position': indices [20:23],
-                                'target_orientation': indices [23:26],
-                                'object_position': indices [26:29],
-                                'object_orientation': indices [29:32],
-                                'gripper_position': indices [32:33],
-                                'collision_flag': indices [33:34],
+                                'joint_values':       indices [0:7],
+                                'joint_velocities':   indices [7:14],
+                                'ee_position':        indices [14:17],
+                                'ee_orientation':     indices [17:21],
+                                'target_position':    indices [21:24],
+                                'target_orientation': indices [24:28],
+                                'object_position':    indices [28:31],
+                                'object_orientation': indices [31:35],
+                                'gripper_position':   indices [35:36], ---(it is optional, in case a gripper is enabled)
+                                'collision_flag':     indices [36:37], ---([35:36] in case of without gripper)
 
             :param time_step_update: whether to increase the time_step of the agent - during manual actions call with False
 
