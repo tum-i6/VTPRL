@@ -209,11 +209,11 @@ if __name__ == "__main__":
 
     # Change the path if needed
     simulator_path = os.path.dirname(os.path.dirname(os.path.realpath(__file__))) + "/environment/simulator/"
-    simulator_version = 'v0.95'  # 'v0.9'
+    simulator_version = 'v0.97'  # 'v0.95', 'v0.9'
     simulator_platform = 'Windows'  # 'Linux'
     xml_file = simulator_path + simulator_version + "/" + simulator_platform + "/ManipulatorEnvironment/configuration.xml"
 
     # Update the .xml based on the new changes in the Config class #
     update_simulator_configuration(config, xml_file)
-    print("Successfully updated the simulator configuratiuon file:")
+    print("Successfully updated the simulator configuration file:")
     print(xml_file)

@@ -44,7 +44,7 @@ def update_simulator_configuration(config, xml_file):
     if(oldFieldText != field.text):
         field.set('updated', 'yes')
 
-    field = root.find('PhyscsSimulationIncrementInSeconds')
+    field = root.find('PhysicsSimulationIncrementInSeconds')
     oldFieldText = field.text
     field.text = str(config.dart_dict["unity_cycle"])
     if(oldFieldText != field.text):
