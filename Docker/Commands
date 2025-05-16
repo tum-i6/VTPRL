@@ -5,15 +5,21 @@ docker build . -t vtprl_image -f Docker/Dockerfile
 # The Docker image above is built for Python3.7. To build a docker image for Python3.8, run the command below.
 docker build . -t vtprl_image -f Docker/Dockerfile_Python38
 
+# To build the most recent docker image for Python3.10 with CUDA 12.8 and Ubuntu 22.04 base image, run the command below.
+docker build . -t vtprl_image -f Docker/Dockerfile_Python310
+
 # Build a docker image with all dependencies for non-cuda-enabled devices running the command below from the repo root folder. 
 # Dependencies: Docker. Only difference from Dockerfile is the root image it starts from for system configurations that do not support GPU acceleration from inside Docker.
+# This image is only for Python 3.7. You can replicate the same changes for other Python versions.
 docker build . -t vtprl_image -f Docker/Dockerfile_NoCUDA
 
-# These commands are useful to run before starting the container in case you want to start the simulator from a shell inside the container (not recommended for Windows, works on linux) - it allows local connections to your X server.
+# These commands are useful to run before starting the container in case you want to start the simulator from a shell inside the container
+# (not recommended for Windows, works on linux) - it allows local connections to your X server.
 export DISPLAY=":0"
 xhost + local:
 
-# After building create a container with the built image running the command below from the repo root folder. Same for NoCUDA, but remove the --gpus parameter as it is not supported on non-cuda-enabled devices. [repo_name] is a name placeholder; for instance you can use vtprl.
+# After building create a container with the built image running the command below from the repo root folder.
+# Same for NoCUDA, but remove the --gpus parameter as it is not supported on non-cuda-enabled devices. [repo_name] is a name placeholder; for instance you can use vtprl.
 docker run --rm -it \
            --name vtprl_container \
            --gpus all \
@@ -25,7 +31,9 @@ docker run --rm -it \
            vtprl_image:latest \
            bash
 
-# If you are running the Docker container on WSL under Windows 11 and would like to enable the graphical viewers and monitors, you need to create a container with command below. This time several options have been added to enable container's access to Gtk and connected screens. In this way, graphical apps can be started within the container. 
+# If you are running the Docker container on WSL under Windows 11 and would like to enable the graphical viewers and monitors,
+# you need to create a container with command below. This time several options have been added to enable container's access to Gtk and connected screens.
+# In this way, graphical apps can be started within the container. 
 docker run --rm -it \
            --name vtprl_container \
            --gpus all \
@@ -42,10 +50,11 @@ docker run --rm -it \
            vtprl_image:latest \
            bash
 
-# By excluding the --rm option from the above commands, the container can persist even after closing. This is useful for continous development. To run the existing container for the next runs, the command below can be used.
+# By excluding the --rm option from the above commands, the container can persist even after closing.
+# This is useful for continous development. To run the existing container for the next runs, the command below can be used.
 docker start -ai vtprl_container
 
-# On local machines you can start the simulator outside of docker as well, cd to the repository root folder inside the docker container and run python3 agant/main.py to connect to the simulator and start training.
+# On local machines you can start the simulator outside of docker as well, cd to the repository root folder inside the docker container
+# and run python3 agant/main.py to connect to the simulator and start training.
 
 # If there are errors see "Troubleshooting" section.
-

@@ -558,3 +558,11 @@ class IiwaSampleEnv(IiwaDartUnityEnv):
             action = np.append(action, [tool_vel])
 
         return action
+    
+    def get_wrapper_attr(self, name):
+        """Mimics Stable-Baselines3 VecEnvWrapper method."""
+        if hasattr(self, name):
+            return getattr(self, name)
+        else:
+            raise AttributeError(f"'{self.__class__.__name__}' object has no attribute '{name}'")
+

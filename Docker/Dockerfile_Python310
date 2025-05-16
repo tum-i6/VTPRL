@@ -1,0 +1,104 @@
+ARG cuda_docker_tag="12.8.1-cudnn-devel-ubuntu22.04"
+FROM nvidia/cuda:"${cuda_docker_tag}" AS builder
+
+ENV DEBIAN_FRONTEND=noninteractive
+
+# fix Nvidia keys issue https://forums.developer.nvidia.com/t/notice-cuda-linux-repository-key-rotation/212772
+RUN apt-key del 7fa2af80
+RUN rm -f /etc/apt/sources.list.d/cuda.list
+RUN rm -f /etc/apt/sources.list.d/nvidia-ml.list
+ADD https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2204/x86_64/cuda-keyring_1.0-1_all.deb .
+RUN dpkg -i cuda-keyring_1.0-1_all.deb
+
+###############################################################################
+
+#### Install essential packages ####
+
+RUN apt-get update --fix-missing && \
+    apt-get install -y wget bzip2 ca-certificates unzip curl git git-all nano vim tmux gcc g++ \
+        build-essential cmake pkg-config software-properties-common apt-transport-https \
+        htop graphviz ffmpeg libsm6 libxext6 libbullet-dev libode-dev liboctomap-dev \
+        libassimp-dev libccd-dev libfcl-dev libboost-regex-dev libboost-system-dev \
+        libboost-filesystem-dev libboost-thread-dev libboost-program-options-dev libboost-all-dev \
+        libtinyxml2-dev liburdfdom-dev libopenmpi-dev libosmesa6-dev libcairo2-dev patchelf \
+        libxi-dev libxmu-dev freeglut3-dev libopenscenegraph-dev libnlopt-dev && \
+    apt-get clean && \
+    apt-get autoremove && \
+    rm -rf /var/lib/apt/lists/*
+
+###############################################################################
+
+#### Install Python 3.10 ####
+
+RUN apt-get update && \
+    apt-get install -y python3.10 python3.10-dev python3-pip && \
+    rm /usr/bin/python3 && \
+    ln -s /usr/bin/python3.10 /usr/bin/python3 && \
+    ln -s /usr/bin/python3 /usr/bin/python && \
+    python -m pip install --upgrade pip setuptools wheel pytest pytest-cov flake8 && \
+    rm -rf /var/lib/apt/lists/*
+
+###############################################################################
+
+SHELL ["/bin/bash", "-c"]
+
+ENV SHELL=/bin/bash
+RUN ln -sf /bin/bash /bin/sh
+
+###############################################################################
+
+#### OpenGL ####
+
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+        mesa-utils libglu1-mesa-dev mesa-common-dev \
+        libglew-dev libglfw3-dev libglm-dev libao-dev libmpg123-dev \
+        libglvnd-dev libgl1-mesa-dev libegl1-mesa-dev libgles2-mesa-dev && \
+    rm -rf /var/lib/apt/lists/*
+
+###############################################################################
+
+#### Dart ####
+
+# Install PyBind
+RUN mkdir /home/repos && cd /home/repos && \
+    git clone https://github.com/pybind/pybind11 -b 'v2.2.4' --single-branch --depth 1 && \
+    cd pybind11 && mkdir build && cd build && \
+    cmake .. -DPYTHON_EXECUTABLE=/usr/bin/python3 -DCMAKE_BUILD_TYPE=Release -DPYBIND11_TEST=OFF && \
+    make -j$(nproc) && make install
+
+# Install compatible Nlopt
+RUN cd /home/repos && git clone https://github.com/stevengj/nlopt.git && cd nlopt && \ 
+    git checkout v2.7.1 && mkdir build && cd build && \ 
+    cmake .. -DCMAKE_INSTALL_PREFIX=/usr/ -DBUILD_SHARED_LIBS=ON && \
+    make -j$(nproc) && make install
+
+# Install compatible Eigen3
+RUN wget http://mirrors.kernel.org/ubuntu/pool/universe/e/eigen3/libeigen3-dev_3.3.4-4_all.deb && dpkg -i libeigen3-dev_3.3.4-4_all.deb && rm -f libeigen3-dev_3.3.4-4_all.deb
+
+# Clone Dart
+RUN cd /home/repos && git clone https://github.com/dartsim/dart.git && cd dart && git checkout tags/v6.11.1
+
+# Install viewer dependencies
+RUN apt-get update && \
+    apt-get install -y libxcb-icccm4 libxcb-image0 libxcb-keysyms1 libxcb-render-util0 \
+        libxcb-xkb-dev libxkbcommon-x11-0 libxcb-xinerama0
+
+# Install DartPy from source with new bindings
+COPY Dart_Additional_Files /home/repos/dart
+RUN cd /home/repos/dart && mkdir build && cd build && \
+    cmake .. -DCMAKE_INSTALL_PREFIX=/usr/ -DCMAKE_BUILD_TYPE=Release -DDART_BUILD_DARTPY=ON && \
+    make -j$(nproc) dartpy && make install-dartpy
+
+###############################################################################
+
+#### Python Environment ####
+
+# Install Requirements
+ADD Docker/requirements_Python310.txt /home/requirements.txt
+
+RUN python -m pip install -r /home/requirements.txt --log /home/requirements_logs.txt
+
+###############################################################################
+
+WORKDIR /home
