@@ -82,9 +82,10 @@ class Config:
             # available environments
             'env_key': 'iiwa_sample_dart_unity_env',   # for control in task space with dart
             #'env_key': 'iiwa_joint_vel',              # without dart (only joint velocity control) -> enable gripper (see below). Sample env for testing images state representation
+            # 'env_key': 'so100_sample_dart_unity_env',  # for control in task space with dart for the SO-100 arm
 
             # environment-specific parameter, e.g, number of links, only relevant for 'iiwa_joint_vel' env
-            # currently, num_joints should be always 7 when the DART based environment is used
+            # currently, num_joints should be always 7/iiwa or 5/so100 when the DART based environment is used
             'num_joints': 7,
 
             # camera and images settings: gym and UNITY #
@@ -93,6 +94,8 @@ class Config:
             'image_encoding':  'JPG',                   # (*) Encoding of Unity observation image (PNG or JPG)
             'image_quality':   50,                      # (*) Compression of the lossy JPG image
             'image_grayscale': False,                   # (*) Unity observation image as Gray-scale instead of RGB
+            'image_fov':       45,                      # (*) Camera's vertical field of view in degrees
+            'image_segmentation': False,                # (*) Unity observation of robot as one color useful for segmentation
             'camera_position': [0.0, 1.25, 1.3],        # (*) UNITY
             'camera_rotation': [130.0, 0.0, 180.0],     # (*)
 
@@ -100,6 +103,7 @@ class Config:
             'enable_end_effector': True,                # (*) Set to False if no tool is attached. Important: in that case, set 'robotic_tool' to None
             'robotic_tool':        "calibration_pin",   # (*) Options: '3_gripper', '2_gripper', 'calibration_pin', 'None' (string). Also, 'end_effector' should be set to True.
                                                         #               -> For 'iiwa_sample_joint_vel_env' select a gripper
+                                                        #     Options: 'default_gripper' for SO-100 arm. Also, 'end_effector' should be set to True.
 
             # GRPC, ROS or ZMQ
             'communication_type': 'GRPC',               # (*)
@@ -142,6 +146,8 @@ class Config:
             ##################################################################################################################
             'random_initial_joint_positions': False,                        # If set to True, it overrides the values set in 'initial_positions'.
             'initial_positions': None,                                      # Example options: [0, 0, 0, 0, 0, 0, 0] same as None, [0, 0, 0, -np.pi/2, 0, np.pi/2, 0]
+                                                                            # For SO-100 initilize the robot from non-zero position, otherwise you'd receive collision at start.
+                                                                            # Example SO-100 initial_positions: [0, np.pi/2, -np.pi/2, 0, 0]
 
             ##################################################################################################################################
             # Default velocity and joint limits for 'iiwa_sample_dart_unity_env'                                                             #
@@ -209,7 +215,7 @@ if __name__ == "__main__":
 
     # Change the path if needed
     simulator_path = os.path.dirname(os.path.dirname(os.path.realpath(__file__))) + "/environment/simulator/"
-    simulator_version = 'v0.98'  # 'v0.97', 'v0.95', 'v0.9'
+    simulator_version = 'v0.99'  # 'v0.98', 'v0.97', 'v0.95', 'v0.9'
     simulator_platform = 'Windows'  # 'Linux', 'Mac'
     xml_file = simulator_path + simulator_version + "/" + simulator_platform + "/ManipulatorEnvironment/configuration.xml"
 

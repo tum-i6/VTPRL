@@ -66,7 +66,7 @@ class SimulatorVecEnv(DummyVecEnv):
         #self.envs = [env_fn(id=ID) for env_fn, ID in zip(env_fns, [x for x in range(self.nenvs)])]
 
         # Initial position flag for the manipulator/robot after reseting. 1 means different than the default vertical position #
-        if (config["initial_positions"] is None or np.count_nonzero(config["initial_positions"]) != 0) and config["random_initial_joint_positions"] == False:
+        if (config["initial_positions"] is None or np.count_nonzero(config["initial_positions"]) == 0) and config["random_initial_joint_positions"] == False:
             self.flag_zero_initial_positions = 0
         else:
             self.flag_zero_initial_positions = 1
@@ -111,6 +111,8 @@ class SimulatorVecEnv(DummyVecEnv):
             print("The robot has a 3-finger gripper attached to the end-effector")
         elif(self.robotic_tool == "calibration_pin"):
             print("The robot has a calibration pin attached to the end-effector")
+        elif(self.robotic_tool == "default_gripper"):
+            print("The robot has the default gripper attached to the end-effector")
         else:
             print("The robot has no tool attached to the end-effector")
 
@@ -287,12 +289,16 @@ class SimulatorVecEnv(DummyVecEnv):
         """
 
         rews = [0] * len(self.envs)
-        if(self.config['env_key'] == 'iiwa_joint_vel'):
-            action_dim = self.config['num_joints'] + 1 # For gripper
-        elif(self.config['robotic_tool'].find("gripper") == -1):
-            action_dim = 7
-        else:
-            action_dim = 8
+
+        if (self.config['env_key'].find("iiwa") != -1):
+            if(self.config['env_key'] == 'iiwa_joint_vel'):
+                action_dim = self.config['num_joints'] + 1 # For gripper
+            elif(self.config['robotic_tool'].find("gripper") == -1):
+                action_dim = 7
+            else:
+                action_dim = 8
+        elif (self.config['env_key'].find("so100") != -1):
+            action_dim = 6
 
         # For collided envs send zero velocities #
         for env in self.envs:
@@ -336,12 +342,15 @@ class SimulatorVecEnv(DummyVecEnv):
             :return: obs_converted
         """
         # Send zero velocities to the UNITY envs  #
-        if(self.config['env_key'] == 'iiwa_joint_vel'):
-            action_dim = self.config['num_joints'] + 1
-        elif(self.config['robotic_tool'].find("gripper") == -1):
-            action_dim = 7
-        else:
-            action_dim = 8
+        if (self.config['env_key'].find("iiwa") != -1):
+            if(self.config['env_key'] == 'iiwa_joint_vel'):
+                action_dim = self.config['num_joints'] + 1
+            elif(self.config['robotic_tool'].find("gripper") == -1):
+                action_dim = 7
+            else:
+                action_dim = 8
+        elif (self.config['env_key'].find("so100") != -1):
+            action_dim = 6
 
         actions = np.zeros((len(envs), action_dim))
         request = self._create_request("ACTION", envs, actions)

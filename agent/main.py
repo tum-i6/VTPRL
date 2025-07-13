@@ -10,6 +10,7 @@ import pandas as pd
 from simulator_vec_env import SimulatorVecEnv
 from envs.iiwa_sample_joint_vel_env import IiwaJointVelEnv
 from envs.iiwa_sample_env import IiwaSampleEnv
+from envs.so100_sample_env import SO100SampleEnv
 
 # Monitor envs 
 from stable_baselines3.common.vec_env import VecMonitor
@@ -51,6 +52,19 @@ def get_env(config_dict, dart_env_dict, reward_dict, log_dir):
                                 max_ee_rot_acc=config_dict['max_ee_rot_acc'], random_initial_joint_positions=config_dict['random_initial_joint_positions'],
                                 initial_positions=config_dict['initial_positions'], robotic_tool=config_dict["robotic_tool"],
                                 env_id=id)
+        
+        elif env_key == 'so100_sample_dart_unity_env':
+            env = SO100SampleEnv(max_ts=dart_env_dict['max_time_step'], orientation_control=dart_env_dict['orientation_control'],
+                                 use_ik=dart_env_dict['use_inverse_kinematics'], ik_by_sns=dart_env_dict['linear_motion_conservation'],
+                                 state_type=config_dict['state'], enable_render=dart_env_dict['enable_dart_viewer'],
+                                 task_monitor=dart_env_dict['task_monitor'], with_objects=dart_env_dict['with_objects'],
+                                 target_mode=dart_env_dict['target_mode'], target_path=dart_env_dict['target_path'],
+                                 goal_type="target", joints_safety_limit=config_dict['joints_safety_limit'],
+                                 max_joint_vel=config_dict['max_joint_vel'], max_ee_cart_vel=config_dict['max_ee_cart_vel'],
+                                 max_ee_cart_acc=config_dict['max_ee_cart_acc'], max_ee_rot_vel=config_dict['max_ee_rot_vel'],
+                                 max_ee_rot_acc=config_dict['max_ee_rot_acc'], random_initial_joint_positions=config_dict['random_initial_joint_positions'],
+                                 initial_positions=config_dict['initial_positions'], robotic_tool=config_dict["robotic_tool"],
+                                 env_id=id)
 
         # Set env seed #
         env.seed((id * 150) + (id + 11))

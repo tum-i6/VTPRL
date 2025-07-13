@@ -99,6 +99,26 @@ def update_simulator_configuration(config, xml_file):
         if(oldFieldText != field.text):
             field.set('updated', 'yes')
 
+    try: # Might not be available depending on the simulator version
+        field = root.find('ObservationImageFOV')
+        oldFieldText = field.text
+        field.text = str(config.config_dict["image_fov"])
+        if(oldFieldText != field.text):
+            field.set('updated', 'yes')
+
+        field = root.find('EnableSegmentation')
+        oldFieldText = field.text
+        newFieldText = str(config.config_dict["image_segmentation"]).lower()
+        if(newFieldText != "true" and newFieldText != "false"):
+            print("Given EnableSegmentation field is invalid")
+        else:
+            field.text = newFieldText
+            if(oldFieldText != field.text):
+                field.set('updated', 'yes')
+            
+    except:
+        pass
+
     # Camera position #
     field = root.find('ObservationCameras')[0][0]
     x = field[0]
@@ -138,6 +158,24 @@ def update_simulator_configuration(config, xml_file):
     z.text = str(config.config_dict["camera_rotation"][2])
     if(oldFieldText != z.text):
         z.set('updated', 'yes')
+
+    try: # Might not be available depending on the simulator version
+        # Manipulator #
+        field = root.find('ManipulatorModel')
+        oldFieldText = field.text
+        if 'iiwa' in config.config_dict["env_key"]:
+            model = "IIWA14"
+        elif 'so100' in config.config_dict["env_key"]:
+            model = "SO100"
+        else:
+            model = "IIWA14"
+
+        field.text = model
+        if(oldFieldText != field.text):
+            field.set('updated', 'yes')
+
+    except:
+        pass
 
     # End effector #
     field = root.find('EnableEndEffector')
@@ -248,7 +286,7 @@ def update_simulator_configuration(config, xml_file):
         if(oldFieldText != field.text):
             field.set('updated', 'yes')
 
-    try: # Might not be availavle depending on the simulator version
+    try: # Might not be available depending on the simulator version
         field = root.find('EnableShadows')
         oldFieldText = field.text
         newFieldText = str(config.randomization_dict["enable_shadows"]).lower()
