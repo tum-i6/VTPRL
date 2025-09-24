@@ -32,7 +32,19 @@ class IiwaNumericalPlanarGraspingEnv(IiwaSampleEnv):
                  joints_safety_limit=10, max_joint_vel=20, max_ee_cart_vel=0.035, max_ee_cart_acc =10, max_ee_rot_vel=0.15, max_ee_rot_acc=10,
                  random_initial_joint_positions=False, initial_positions=[0, 0, 0, -np.pi/2, 0, np.pi/2, np.pi/2], noise_enable_rl_obs=False, noise_rl_obs_ratio=0.05,
                  reward_dict=None, agent_kp=0.5, agent_kpr=1.5,
-                 robotic_tool="3_gripper", env_id=0):
+                 robotic_tool=None, end_effector_model=None, env_id=0):
+
+        # Backward/forward compatibility: map end_effector_model to legacy robotic_tool if not provided
+        if robotic_tool is None:
+            ee_map = {
+                None: 'None',
+                'None': 'None',
+                'ROBOTIQ_2F85': '2_gripper',
+                'ROBOTIQ_3F': '3_gripper',
+                'CALIBRATION_PIN': 'calibration_pin',
+                'DEFAULT_GRIPPER': 'default_gripper'
+            }
+            robotic_tool = ee_map.get(end_effector_model, 'default_gripper')
 
         # Some checks #
         if(use_ik == False or orientation_control == False or 'v' in state_type):
@@ -194,6 +206,8 @@ class IiwaNumericalPlanarGraspingEnv(IiwaSampleEnv):
            :return: observation state for the policy training.
         """
         state = np.empty(0)
+        if(self.init_object_pose_unity == None):
+            return state
 
         # Relative position normalized errors of ee to the box #
         dx_ee_b, dz_ee_b = self.get_error_ee_box_x_z_normalized_unity()
@@ -491,6 +505,8 @@ class IiwaNumericalPlanarGraspingEnv(IiwaSampleEnv):
 
             :return: The initialized state
         """
+        # takes care of resetting the DART chain and should stay as it is
+        state = super().reset()
 
         ############################################################
         # Spawn the next box and fix the target (for task monitor) #
@@ -513,9 +529,6 @@ class IiwaNumericalPlanarGraspingEnv(IiwaSampleEnv):
         tool_length = 0.0 
         target_object_RX, target_object_RY, target_object_RZ = self.get_box_rotation_in_target_dart_coords_angle_axis()
         target = [target_object_RX, target_object_RY, target_object_RZ, target_object_Z, -target_object_X, target_object_Y + tool_length]
-
-        # takes care of resetting the DART chain and should stay as it is
-        state = super().reset()
 
         # sets the initial reaching target for the current episode,
         # should be always called in the beginning of each episode,
@@ -555,9 +568,12 @@ class IiwaNumericalPlanarGraspingEnv(IiwaSampleEnv):
         # Keep track the previous distance of the ee to the box - used in the reward function #
         # Initialize -during the __init__() they are set to np.inf                            #
         #######################################################################################
-        self.prev_dist_ee_box_z = self.get_relative_distance_ee_box_z_unity()
-        self.prev_dist_ee_box_x = self.get_relative_distance_ee_box_x_unity()
-        self.prev_dist_ee_box_ry = self.get_relative_distance_ee_box_ry_unity() 
+        if('object_position' in self.unity_observation):
+            self.prev_dist_ee_box_z = self.get_relative_distance_ee_box_z_unity()
+            self.prev_dist_ee_box_x = self.get_relative_distance_ee_box_x_unity()
+            self.prev_dist_ee_box_ry = self.get_relative_distance_ee_box_ry_unity() 
+        else:
+            self.prev_dist_ee_box_z = self.prev_dist_ee_box_x = self.prev_dist_ee_box_ry = 0.0
 
         return state
 

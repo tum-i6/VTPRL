@@ -11,21 +11,26 @@ if __name__ == '__main__':
         Example method to run the base standalone DART environment.
         This is useful to quickly develop and check different model-based control policies.
     """
-    env_dict = Config.get_dart_env_dict()
-    config_dict = Config.get_config_dict()
+    # Structured configuration
+    cfg = Config()
+    gym = cfg.gym_environment_dict
+    env_key = gym.get('env_key', '')
+    mg = gym.get('manipulator_gym_environment', {})
+    d = mg.get('dart', {})
 
-    if config_dict['env_key'] == 'iiwa_sample_dart_unity_env':
-        robot = IiwaDartEnv(max_ts=env_dict['max_time_step'], orientation_control=env_dict['orientation_control'],
-                            use_ik=env_dict['use_inverse_kinematics'], ik_by_sns=env_dict['linear_motion_conservation'],
-                            enable_render=env_dict['enable_dart_viewer'], task_monitor=env_dict['task_monitor'],
-                            target_mode="random_joint_level", with_objects=env_dict['with_objects'])
-    
-    if config_dict['env_key'] == 'so100_sample_dart_unity_env':
-        robot = SO100DartEnv(max_ts=env_dict['max_time_step'], orientation_control=env_dict['orientation_control'],
-                             use_ik=env_dict['use_inverse_kinematics'], ik_by_sns=env_dict['linear_motion_conservation'],
-                             enable_render=env_dict['enable_dart_viewer'], task_monitor=env_dict['task_monitor'],
-                             target_mode="random_joint_level", with_objects=env_dict['with_objects'])
-    
+    # Instantiate selected standalone DART environment
+    if env_key == 'iiwa_sample_dart_unity_env':
+        robot = IiwaDartEnv(max_ts=gym['max_time_step'], orientation_control=d['orientation_control'],
+                            use_ik=d['use_inverse_kinematics'], ik_by_sns=d['linear_motion_conservation'],
+                            enable_render=d['enable_dart_viewer'], task_monitor=d['task_monitor'],
+                            target_mode=d['target_mode'], with_objects=d['with_objects'])
+
+    elif env_key == 'so100_sample_dart_unity_env':
+        robot = SO100DartEnv(max_ts=gym['max_time_step'], orientation_control=d['orientation_control'],
+                             use_ik=d['use_inverse_kinematics'], ik_by_sns=d['linear_motion_conservation'],
+                             enable_render=d['enable_dart_viewer'], task_monitor=d['task_monitor'],
+                             target_mode=d['target_mode'], with_objects=d['with_objects'])
+
     else:
         raise Exception('* Undefined environment!')
 

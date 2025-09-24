@@ -30,7 +30,7 @@ class SO100SampleEnv(SO100DartUnityEnv):
                  with_objects=False, target_mode="random", target_path="/misc/generated_random_targets/cart_pose_7dof.csv", goal_type="target",
                  joints_safety_limit=0.0, max_joint_vel=20.0, max_ee_cart_vel=10.0, max_ee_cart_acc =3.0, max_ee_rot_vel=4.0, max_ee_rot_acc=1.2,
                  random_initial_joint_positions=False, initial_positions=[0, 0, 0, 0, 0],
-                 robotic_tool="default_gripper", env_id=0):
+                 robotic_tool=None, end_effector_model=None, env_id=0):
 
         # range of vertical, horizontal pixels for the DART viewer
         viewport = (0, 0, 500, 500)
@@ -68,6 +68,10 @@ class SO100SampleEnv(SO100DartUnityEnv):
         ##################################################################################
         # End set limits -> Important: Must be set before calling the super().__init__() #
         ##################################################################################
+
+        # Backward/forward compatibility: map end_effector_model to legacy robotic_tool if not provided
+        if robotic_tool is None:
+            robotic_tool = 'default_gripper'
 
         super().__init__(max_ts=max_ts, orientation_control=orientation_control, use_ik=use_ik, ik_by_sns=ik_by_sns,
                          state_type=state_type, robotic_tool=robotic_tool, enable_render=enable_render, task_monitor=task_monitor,

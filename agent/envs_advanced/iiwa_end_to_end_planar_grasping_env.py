@@ -26,12 +26,24 @@ class IiwaEndToEndPlanarGraspingEnv(IiwaNumericalPlanarGraspingEnv):
                  randomBoxesGenerator=None, joints_safety_limit=10, max_joint_vel=20, max_ee_cart_vel=0.035, max_ee_cart_acc =10, max_ee_rot_vel=0.15, max_ee_rot_acc=10,
                  random_initial_joint_positions=False, initial_positions=[0, 0, 0, -np.pi/2, 0, np.pi/2, np.pi/2],
                  noise_enable_rl_obs=False, noise_rl_obs_ratio=0.05, reward_dict=None, agent_kp=0.5, agent_kpr=1.5,
-                 robotic_tool="3_gripper", image_size=128, env_id=0):
+                 robotic_tool=None, end_effector_model=None, image_size=128, env_id=0):
 
         if(use_images != True):
             raise Exception("End-to-end vision-based env requires use_images to be set to True - abort")
 
         # the init of the parent class should be always called, this will in the end call reset() once
+        # Backward/forward compatibility: map end_effector_model to legacy robotic_tool if not provided
+        if robotic_tool is None:
+            ee_map = {
+                None: 'None',
+                'None': 'None',
+                'ROBOTIQ_2F85': '2_gripper',
+                'ROBOTIQ_3F': '3_gripper',
+                'CALIBRATION_PIN': 'calibration_pin',
+                'DEFAULT_GRIPPER': 'default_gripper'
+            }
+            robotic_tool = ee_map.get(end_effector_model, 'default_gripper')
+
         super().__init__(max_ts=max_ts, orientation_control=orientation_control, use_ik=use_ik, ik_by_sns=ik_by_sns, state_type=state_type, enable_render=enable_render, task_monitor=task_monitor, target_mode=target_mode, goal_type=goal_type, 
                          randomBoxesGenerator=randomBoxesGenerator, joints_safety_limit=joints_safety_limit, max_joint_vel=max_joint_vel, max_ee_cart_vel=max_ee_cart_vel,
                          max_ee_cart_acc=max_ee_cart_acc, max_ee_rot_vel=max_ee_rot_vel, max_ee_rot_acc=max_ee_rot_acc,

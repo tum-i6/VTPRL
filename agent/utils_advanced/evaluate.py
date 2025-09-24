@@ -25,7 +25,7 @@ from models.ruckig_planar_model import RuckigPlanarModel
 # Set-up envs
 from utils_advanced.helpers import get_env
 
-def evaluation_mode(config_dict, dart_env_dict, gym_env_dict, hyper_dict, goal_dict, reward_dict, manual_actions_dict=None, randomization_dict=None, randomBoxesGenerator=None):
+def evaluation_mode(agent, root, sim, gym, manip_env, observation, hyper_dict, goal_dict, reward_dict, manual_actions_dict=None, randomBoxesGenerator=None):
     """
         evaluate a single checkpoint or a whole directory that may include many runs and many checkpoints per run. Save results in .csv file
 
@@ -42,21 +42,21 @@ def evaluation_mode(config_dict, dart_env_dict, gym_env_dict, hyper_dict, goal_d
         :param randomBoxesGenerator: boxes generator to spawn boxes for planar grasping
     """
 
-    env_key = config_dict['env_key']
+    env_key = gym['env_key']
 
     # Build env #
-    env = get_env(config_dict, dart_env_dict, gym_env_dict, config_dict["log_dir"], reward_dict, goal_dict, manual_actions_dict, randomization_dict, randomBoxesGenerator)
+    env = get_env(agent, root, sim, gym, manip_env, observation, agent["log_dir"], reward_dict, goal_dict, manual_actions_dict, randomBoxesGenerator)
 
-    print("Using for evaluation the env: " + config_dict["env_key"])
+    print("Using for evaluation the env: " + gym["env_key"]) 
 
     if env_key.find("planar") != -1: # Planar envs
-        _evaluate_planar_grasping(env, config_dict, dart_env_dict, hyper_dict, randomBoxesGenerator)
+        _evaluate_planar_grasping(env, agent, sim, gym, hyper_dict, randomBoxesGenerator)
     elif env_key == "iiwa_sample_dart_unity_env" or env_key == "iiwa_joint_vel":
-        _evaluate_base_env(env, config_dict, dart_env_dict)
+        _evaluate_base_env(env, agent, gym)
     else:
         raise Exception("This type of env has no available evaluation method. Create one in the evaluate.py first - aborting")
 
-def _evaluate_base_env(env, config_dict, dart_env_dict):
+def _evaluate_base_env(env, agent, gym):
     """
         evaluate iiwa_sample_joint_vel_env, or iiwa_joint_vel envs
 
@@ -65,28 +65,27 @@ def _evaluate_base_env(env, config_dict, dart_env_dict):
         :param dart_env_dict: dart dictionary
     """
 
-    if(config_dict["simulation_mode"] == "evaluate"):
-        run_name = config_dict["model_evaluation_type"].split("/")
-        run_name = run_name[-2] + "_" + run_name[-1]                 # e.g. run_0/model_3125_0
+    if (agent["simulation_mode"] == "evaluate"):
+        run_name = agent["model_evaluation_type"].split("/")
+        run_name = run_name[-2] + "_" + run_name[-1]  # e.g. run_0/model_3125_0
 
         print("===================================================")
         print("(RL) Model evaluation: " + str(run_name))
         print("===================================================")
 
         # Load trained agent #
-        model = PPO.load(os.path.join(config_dict["model_evaluation_type"]))
+        model = PPO.load(os.path.join(agent["model_evaluation_type"]))
         model.policy.set_training_mode(False)
 
         obs = env.reset()
-        for x in range(1000):                                        # Run some steps for each env 
-            action, _states = model.predict(obs, deterministic=True) # Important: set deterministic to True to use the best learned policy (no exploration)
-
+        for _ in range(1000):  # Run some steps for each env
+            action, _states = model.predict(obs, deterministic=True)  # Use best learned policy (no exploration)
             obs, rewards, dones, info = env.step(action)
 
-            if dart_env_dict['enable_dart_viewer'] and config_dict['env_key'] != 'iiwa_joint_vel':
+            if gym['manipulator_gym_environment']['dart']['enable_dart_viewer'] and gym['env_key'] != 'iiwa_joint_vel':
                 env.render()
 
-    elif(config_dict['simulation_mode'] == 'evaluate_model_based' and config_dict['env_key'] != 'iiwa_joint_vel'):
+    elif (agent['simulation_mode'] == 'evaluate_model_based' and gym['env_key'] != 'iiwa_joint_vel'):
         # check model-based controllers (e.g. P-controller) #
         print("===================================================")
         print("Model-based evaluation")
@@ -96,23 +95,25 @@ def _evaluate_base_env(env, config_dict, dart_env_dict):
 
         obs = env.reset()
         episode_rewards = []
-        for _ in range(5): # Play some episodes 
+        for _ in range(5):  # Play some episodes
             cum_reward = 0
 
-            while True: # Play until we have a successful episode
-
-                if dart_env_dict['use_inverse_kinematics']:                                                   # Generate an action for the current observation using a P-controller
+            while True:  # Play until we have a successful episode
+                if gym['manipulator_gym_environment']['dart']['use_inverse_kinematics']:
+                    # Generate an action for the current observation using a P-controller
                     action = np.reshape(env.env_method('action_by_p_control', control_kp, 2.0 * control_kp),
-                                        (config_dict['num_envs'], env.action_space.shape[0]))
-                else:                                                                                         # Random action
+                                        (gym['num_envs'], env.action_space.shape[0]))
+                else:
+                    # Random action
                     action = np.reshape(env.env_method('random_action'),
-                                        (config_dict['num_envs'], env.action_space.shape[0]))
+                                        (gym['num_envs'], env.action_space.shape[0]))
 
-                obs, rewards, dones, info = env.step(action)                                                  # Play this action
+                # Play this action
+                obs, rewards, dones, info = env.step(action)
                 cum_reward += rewards
 
                 # Render #
-                if dart_env_dict['enable_dart_viewer']:
+                if gym['manipulator_gym_environment']['dart']['enable_dart_viewer']:
                     env.render()
 
                 if dones.any():
@@ -120,12 +121,11 @@ def _evaluate_base_env(env, config_dict, dart_env_dict):
                     break
 
         mean_reward = np.mean(episode_rewards)
-
         print("Mean reward: " + str(mean_reward))
     else:
         print("You have set an invalid simulation_mode or some other settings in the config.py are wrong - aborting")
 
-def _evaluate_planar_grasping(env, config_dict, dart_env_dict, hyper_dict, randomBoxesGenerator):
+def _evaluate_planar_grasping(env, agent, sim, gym, hyper_dict, randomBoxesGenerator):
     """
         evaluate a saved model or many runs and many checkpoints per run. Print some stats and save pandas dfs (.csv) in an evaluation folder
 
@@ -167,24 +167,26 @@ def _evaluate_planar_grasping(env, config_dict, dart_env_dict, hyper_dict, rando
     best_reward_model = None
     best_reward_succ_ratio = 0       # For best reward model save its corresponding success ratio value
 
-    log_dir = config_dict["log_dir"]
+    log_dir = agent["log_dir"]
 
     # Evaluate a single model #
-    if (config_dict["model_evaluation_type"] != "all" or config_dict["env_key"] == 'iiwa_ruckig_planar_grasping_dart_unity_env'):
+    if (agent["model_evaluation_type"] != "all" or gym["env_key"] == 'iiwa_ruckig_planar_grasping_dart_unity_env'):
 
         # Create a dir to save the evaluation pandas dfs #
         Path(log_dir + "evaluation_single_dfs/").mkdir(parents=True, exist_ok=True)
 
         # Load model #
-        if(config_dict["model"] == "PPO"):
-            model = PPO.load(config_dict["model_evaluation_type"])
+        if(agent["model"] == "PPO"):
+            model = PPO.load(agent["model_evaluation_type"])
             model.policy.set_training_mode(False)
 
-            run_name = config_dict["model_evaluation_type"].split("/")
+            run_name = agent["model_evaluation_type"].split("/")
             run_name = run_name[-2] + "_" + run_name[-1] # e.g. run_0/model_3125_0
 
-        elif(config_dict["model"] == "RUCKIG"):
-            model = RuckigPlanarModel(env, control_cycle=dart_env_dict["control_cycle"], hyper_dict=hyper_dict)
+        elif(agent["model"] == "RUCKIG"):
+            # Control cycle for the RUCKIG model-based controller, from structured sim config
+            control_cycle = float(sim['timestep_duration_in_seconds'])
+            model = RuckigPlanarModel(env, control_cycle=control_cycle, hyper_dict=hyper_dict)
             run_name = "ruckig_model"
 
         print("===================================================")
@@ -192,8 +194,19 @@ def _evaluate_planar_grasping(env, config_dict, dart_env_dict, hyper_dict, rando
         print("===================================================")
 
         # Evaluate single model #
-        mean_r, succ_ratio = _evaluate_planar_grapsing_single_model(env=env, model=model, log_dir=log_dir, run_name=run_name, model_id=0, 
-                                                                    config_dict=config_dict, dart_env_dict=dart_env_dict, episodes_test=randomBoxesGenerator.val_size)
+        mean_r, succ_ratio = _evaluate_planar_grapsing_single_model(
+            env=env,
+            model=model,
+            log_dir=log_dir,
+            run_name=run_name,
+            model_id=0,
+            config_dict={'num_envs': gym['num_envs']},
+            dart_env_dict={
+                'enable_dart_viewer': gym['manipulator_gym_environment']['dart']['enable_dart_viewer'],
+                'max_time_step': gym['max_time_step']
+            },
+            episodes_test=randomBoxesGenerator.val_size
+        )
 
         # One model -> equivalent best stats #
         best_reward = mean_r
@@ -206,17 +219,17 @@ def _evaluate_planar_grasping(env, config_dict, dart_env_dict, hyper_dict, rando
         ######################################
 
         # Save dfs #
-        df.loc[0] = [config_dict["evaluation_name"], 0, 0, mean_r, succ_ratio]
+        df.loc[0] = [agent["evaluation_name"], 0, 0, mean_r, succ_ratio]
         df.to_csv(log_dir + "evaluation_single_dfs/" + "df_evaluation_" + run_name + ".csv", index=False)
 
-        df_best.loc[0] = [config_dict["evaluation_name"],
-                          best_succ_ratio_model, best_succ_ratio,  best_succ_ratio_reward, 
-                          best_reward_model, best_reward, best_reward_succ_ratio
-                         ]
-
+        df_best.loc[0] = [
+            agent["evaluation_name"],
+            best_succ_ratio_model, best_succ_ratio, best_succ_ratio_reward,
+            best_reward_model, best_reward, best_reward_succ_ratio
+        ]
         df_best.to_csv(log_dir + "evaluation_single_dfs/" + "df_evaluation_best_" + run_name + ".csv", index=False)
 
-    else: # Evaluate many runs and their saved checkpoints 
+    else:  # Evaluate many runs and their saved checkpoints
 
         # Create a dir to save the evaluation pandas dfs #
         Path(log_dir + "evaluation_all_dfs/").mkdir(parents=True, exist_ok=True)
@@ -224,7 +237,7 @@ def _evaluate_planar_grasping(env, config_dict, dart_env_dict, hyper_dict, rando
         # Scan logs folder and find how many runs exist #
         # logs/ -> run_0/, run_1/                       #
         log_dirs = [filename for filename in os.listdir(log_dir[:-1]) if filename.startswith("run_")]
-        log_dirs = sorted(log_dirs, key=lambda x: int(x.split("_")[1])) 
+        log_dirs = sorted(log_dirs, key=lambda x: int(x.split("_")[1]))
 
         model_i = 0 # For run_0, run_1
         j = 0       # For pandas rows -> one df for all runs 
@@ -243,7 +256,7 @@ def _evaluate_planar_grasping(env, config_dict, dart_env_dict, hyper_dict, rando
             models_names = sorted(models_names, key=lambda x: int(x.split("_")[1]))
 
             # First time step 0 - baseline for all runs - set the initial reward value from the config_advanced.py - adapt if the reward denifition or task changes #
-            df.loc[j] = [config_dict["evaluation_name"], model_i + 1, 0, config_dict["reward_baseline"], 0.0]
+            df.loc[j] = [agent["evaluation_name"], model_i + 1, 0, agent["reward_baseline"], 0.0]
             j += 1
 
             for i, m_name in enumerate(models_names): # Load and evaluate the current checkpoint of the run_i 
@@ -254,9 +267,19 @@ def _evaluate_planar_grasping(env, config_dict, dart_env_dict, hyper_dict, rando
                 model.policy.set_training_mode(False)
 
                 # Evaluate model #
-                mean_r, succ_ratio = _evaluate_planar_grapsing_single_model(env=env, model=model, log_dir=log_dir, run_name=log_dir_name, 
-                                                                            model_id=m_name.split("_")[1], config_dict=config_dict, 
-                                                                            dart_env_dict=dart_env_dict, episodes_test=randomBoxesGenerator.val_size)
+                mean_r, succ_ratio = _evaluate_planar_grapsing_single_model(
+                    env=env,
+                    model=model,
+                    log_dir=log_dir,
+                    run_name=log_dir_name,
+                    model_id=m_name.split("_")[1],
+                    config_dict={'num_envs': gym['num_envs']},
+                    dart_env_dict={
+                        'enable_dart_viewer': gym['manipulator_gym_environment']['dart']['enable_dart_viewer'],
+                        'max_time_step': gym['max_time_step']
+                    },
+                    episodes_test=randomBoxesGenerator.val_size
+                )
                 # Update best stats #
                 if (mean_r > best_reward): # reward-based
                     best_reward = mean_r
@@ -269,7 +292,7 @@ def _evaluate_planar_grasping(env, config_dict, dart_env_dict, hyper_dict, rando
                     best_succ_ratio_reward = mean_r
 
                 # Save results for the current checkpoint #
-                df.loc[j] = [config_dict["evaluation_name"], model_i + 1, m_name.split("_")[1], mean_r, succ_ratio]
+                df.loc[j] = [agent["evaluation_name"], model_i + 1, m_name.split("_")[1], mean_r, succ_ratio]
                 j += 1
 
             # All checkpoints were evaluated for the run_i. Go to the next run
@@ -280,7 +303,7 @@ def _evaluate_planar_grasping(env, config_dict, dart_env_dict, hyper_dict, rando
 
         # Save pandas df of the best stats #
         df_best.loc[0] = [
-            config_dict["evaluation_name"],
+            agent["evaluation_name"],
             best_succ_ratio_model, best_succ_ratio,  best_succ_ratio_reward, 
             best_reward_model, best_reward,  best_reward_succ_ratio
         ]

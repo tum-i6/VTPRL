@@ -37,7 +37,7 @@ class CommandModel:
 class SimulatorVecEnv(DummyVecEnv):
     _client = None
 
-    def __init__(self, env_fns, config, manual_actions_dict, reward_dict, spaces=None ):
+    def __init__(self, env_fns, agent_dict, root_dict, simulation_dict, gym_environment_dict, manipulator_environment_dict, reward_dict, manual_actions_dict=None, spaces=None):
         """
         envs: list of environments to create
         """
@@ -50,13 +50,17 @@ class SimulatorVecEnv(DummyVecEnv):
         #     shell=False)
 
         self.current_step = 0
-        self.config = config
+        self.agent = agent_dict
+        self.root = root_dict
+        self.sim = simulation_dict
+        self.gym = gym_environment_dict
+        self.manip_env = manipulator_environment_dict
         self.reward_dict = reward_dict
-        self.communication_type = config['communication_type']
-        self.port_number = config['port_number']
-        print("Port number: " + config["port_number"])
-        self.ip_address = config['ip_address']
-        print("Ip address: " + config["ip_address"])
+        self.communication_type = self.sim['communication_type']
+        self.port_number = self.sim['port_number']
+        print("Port number: " + str(self.port_number))
+        self.ip_address = self.sim['ip_address']
+        print("Ip address: " + str(self.ip_address))
         self.start = 0
         self.nenvs = len(env_fns)
         self.train_envs = [env_fn(id=ID) for env_fn, ID in zip(env_fns, [x for x in range(self.nenvs)])]
@@ -66,9 +70,12 @@ class SimulatorVecEnv(DummyVecEnv):
         #self.envs = [env_fn(id=ID) for env_fn, ID in zip(env_fns, [x for x in range(self.nenvs)])]
 
         # Initial position flag for the manipulator/robot after reseting. 1 means different than the default vertical position #
-        if (config["initial_positions"] is None or np.count_nonzero(config["initial_positions"]) == 0) and config["random_initial_joint_positions"] == False:
+        manip_gym = self.gym.get('manipulator_gym_environment', {})
+        if (manip_gym.get("initial_positions") is None or np.count_nonzero(manip_gym.get("initial_positions", [])) == 0) and manip_gym.get("random_initial_joint_positions", False) == False:
             self.flag_zero_initial_positions = 0
         else:
+            self.flag_zero_initial_positions = 1
+        if self.root.get("environment_mode") == "Warehouse":
             self.flag_zero_initial_positions = 1
 
         if self.communication_type == 'ROS':
@@ -83,38 +90,42 @@ class SimulatorVecEnv(DummyVecEnv):
             self.socket = self.context.socket(zmq.REQ)
             self.socket.connect("tcp://127.0.0.1:" + str(self.port_number))
         elif self.communication_type == 'GRPC':
+            # Create gRPC channel and stub; defer connectivity checks to first call with timeout
             self.channel = grpc.insecure_channel(self.ip_address + ":" + str(self.port_number))
             self.stub = service_pb2_grpc.CommunicationServiceStub(self.channel)
         else:
-            print("Please specify either ROS or ZMQ communication mode for this environment")
+            print("Please specify a supported communication mode: 'ROS', 'ZMQ', or 'GRPC'.")
 
         ###################################################################
         # Manual/hard-coded actions to command at the end of the episode  #
-        # Disabled by default. Refer to utils_advanced/                   #
+        # Controlled by config_advanced: only enabled if provided.        #
         ###################################################################
-        self.robotic_tool = config["robotic_tool"]
-        if(manual_actions_dict is not None):
-            self.manual = manual_actions_dict["manual"]
-            self.manual_behaviour = manual_actions_dict["manual_behaviour"] # Behaviour to excecute, 'planar_grasping' (down/close/up) or 'close_gripper' (close)
-            self.manual_rewards = manual_actions_dict["manual_rewards"]     # True/False -> whether to add rewards/penalties during manual actions
+        self.manual = False
+        self.manual_behaviour = None
+        self.manual_rewards = False
 
-            # Set-up manual actions and return a function which will be called after the end of the agent episode #
-            self.manual_func = configure_manual_settings_and_get_manual_function(self, manual_actions_dict)
-        else:
-            self.manual = False
+        # If not passed explicitly, try to discover from Config (advanced)
+        candidate_manual = manual_actions_dict
+        try:
+            if candidate_manual is None and isinstance(self.agent, dict):
+                candidate_manual = self.agent.get('manual_actions_dict', None)
+        except Exception:
+            candidate_manual = manual_actions_dict
 
-        if(self.robotic_tool == "None"):
+        if isinstance(candidate_manual, dict) and candidate_manual.get('manual', False):
+            self.manual = True
+            self.manual_behaviour = candidate_manual.get("manual_behaviour")        # Behaviour to excecute, 'planar_grasping' (down/close/up) or 'close_gripper' (close)
+            self.manual_rewards = candidate_manual.get("manual_rewards", False)     # True/False -> whether to add rewards/penalties during manual actions
+            # Set-up manual actions and return a function which will be called after the end of the agent episode
+            self.manual_func = configure_manual_settings_and_get_manual_function(self, candidate_manual)
+
+        # End-effector info
+        self.ee_enabled = bool(self.manip_env.get('enable_end_effector', False))
+        self.ee_model = self.manip_env.get('end_effector_model', None)
+        if not self.ee_enabled or self.ee_model in (None, 'None'):
             print("The robot has no tool attached to the end-effector")
-        elif(self.robotic_tool == "2_gripper"):
-            print("The robot has a 2-finger gripper attached to the end-effector")
-        elif(self.robotic_tool == "3_gripper"):
-            print("The robot has a 3-finger gripper attached to the end-effector")
-        elif(self.robotic_tool == "calibration_pin"):
-            print("The robot has a calibration pin attached to the end-effector")
-        elif(self.robotic_tool == "default_gripper"):
-            print("The robot has the default gripper attached to the end-effector")
         else:
-            print("The robot has no tool attached to the end-effector")
+            print(f"End-effector enabled: {self.ee_model}")
 
     def switch_to_training(self):
         self.envs = self.train_envs
@@ -133,7 +144,7 @@ class SimulatorVecEnv(DummyVecEnv):
 
         self.current_step += 1
 
-        if dart_convert and 'dart' in self.config['env_key']:
+        if dart_convert and 'dart' in str(self.gym.get('env_key', '')):
             actions_converted = []
             for env, action in zip(self.envs, actions):
                 act = env.update_action(action)         # Convert agent action to UNITY format - joint space and tool action
@@ -147,7 +158,7 @@ class SimulatorVecEnv(DummyVecEnv):
         terminated_environments, rews, infos, observations_converted, dones = self._send_actions_and_update(actions)
 
         # Render: Not advised to set 'enable_dart_viewer': True, during RL-training. Use it only for debugging #
-        if(self.config["simulation_mode"] == 'train'):
+        if(self.agent.get("simulation_mode") == 'train'):
             self.render()
 
         ##########################################################################################################
@@ -183,7 +194,7 @@ class SimulatorVecEnv(DummyVecEnv):
             observations_converted = self._send_reset_and_update(terminated_environments, time_step_update=True)
 
             # Render: Not advised to set 'enable_dart_viewer': True, during RL-training. Use it only for debugging #
-            if(self.config["simulation_mode"] == 'train'):
+            if(self.agent.get("simulation_mode") == 'train'):
                 self.render()
 
             ########################################################################################
@@ -205,11 +216,20 @@ class SimulatorVecEnv(DummyVecEnv):
             Create request to send to the UNITY simulator
         """
         content = ''
+        env_label = "manipulator_environment"
+        try:
+            mode = str(self.root.get('environment_mode', '')).lower()
+            key = str(self.gym.get('env_key', '')).lower()
+            if 'warehouse' in mode or 'warehouse' in key:
+                env_label = "warehouse_environment"
+        except Exception:
+            pass
+
         if command == "ACTION":
             for act, env in zip(actions, environments):
                 # print("id: {}\t step: {}\t action = {}".format(env.id, env.ts, str(np.around(act, decimals=3))))
 
-                act_json = json.dumps(CommandModel(env.id, "ACTION", "manipulator_environment", str(act.tolist())), default=lambda x: x.__dict__)
+                act_json = json.dumps(CommandModel(env.id, "ACTION", env_label, str(act.tolist())), default=lambda x: x.__dict__)
                 content += (act_json + ",")
 
         elif command == "RESET":
@@ -217,7 +237,7 @@ class SimulatorVecEnv(DummyVecEnv):
             self.start = time.time()
             for env in environments:
                 reset_string = str(env.reset_state)
-                act_json = json.dumps(CommandModel(env.id, "RESET", "manipulator_environment", reset_string), default=lambda x: x.__dict__)
+                act_json = json.dumps(CommandModel(env.id, "RESET", env_label, reset_string), default=lambda x: x.__dict__)
                 content += (act_json + ",")
 
         return '[' + content + ']'
@@ -233,16 +253,34 @@ class SimulatorVecEnv(DummyVecEnv):
             response = self.socket.recv()
             return self._parse_result(response)
         else:
-            reply = self.stub.step(StepRequest(data=content))
+            # gRPC path with timeout and error handling
+            try:
+                reply = self.stub.step(StepRequest(data=content), timeout=5.0)
+            except grpc.RpcError as e:
+                code = e.code() if hasattr(e, 'code') else None
+                details = e.details() if hasattr(e, 'details') else str(e)
+                raise RuntimeError(f"gRPC step failed (code={code}): {details}. Check that the Unity server is running at {self.ip_address}:{self.port_number} and reachable.") from e
             return self._parse_result(reply.data)
 
     def _parse_result(self, result):
         if self.communication_type == 'ROS':
-            return ast.literal_eval(result['value'])
+            data = result['value']
+            try:
+                return ast.literal_eval(data)
+            except Exception:
+                return json.loads(data)
         elif self.communication_type == 'ZMQ':
-            return ast.literal_eval(result.decode("utf-8"))
+            data = result.decode("utf-8")
+            try:
+                return ast.literal_eval(data)
+            except Exception:
+                return json.loads(data)
         else:
-            return ast.literal_eval(result)
+            data = result
+            try:
+                return ast.literal_eval(data)
+            except Exception:
+                return json.loads(data)
 
     def reset(self, should_reset=True):
         if should_reset:
@@ -290,15 +328,17 @@ class SimulatorVecEnv(DummyVecEnv):
 
         rews = [0] * len(self.envs)
 
-        if (self.config['env_key'].find("iiwa") != -1):
-            if(self.config['env_key'] == 'iiwa_joint_vel'):
-                action_dim = self.config['num_joints'] + 1 # For gripper
-            elif(self.config['robotic_tool'].find("gripper") == -1):
-                action_dim = 7
+        env_key = str(self.gym.get('env_key', ''))
+        if (env_key.find("iiwa") != -1):
+            has_gripper = self.ee_enabled and self.ee_model in ('ROBOTIQ_2F85', 'ROBOTIQ_3F', 'DEFAULT_GRIPPER')
+            if(env_key == 'iiwa_joint_vel'):
+                action_dim = int(self.gym.get('num_joints', 7)) + (1 if has_gripper else 0)
             else:
-                action_dim = 8
-        elif (self.config['env_key'].find("so100") != -1):
+                action_dim = 8 if has_gripper else 7
+        elif (env_key.find("so100") != -1):
             action_dim = 6
+        elif (env_key.find("warehouse") != -1):
+            action_dim = 2
 
         # For collided envs send zero velocities #
         for env in self.envs:
@@ -342,15 +382,17 @@ class SimulatorVecEnv(DummyVecEnv):
             :return: obs_converted
         """
         # Send zero velocities to the UNITY envs  #
-        if (self.config['env_key'].find("iiwa") != -1):
-            if(self.config['env_key'] == 'iiwa_joint_vel'):
-                action_dim = self.config['num_joints'] + 1
-            elif(self.config['robotic_tool'].find("gripper") == -1):
-                action_dim = 7
+        env_key = str(self.gym.get('env_key', ''))
+        if (env_key.find("iiwa") != -1):
+            has_gripper = self.ee_enabled and self.ee_model in ('ROBOTIQ_2F85', 'ROBOTIQ_3F', 'DEFAULT_GRIPPER')
+            if(env_key == 'iiwa_joint_vel'):
+                action_dim = int(self.gym.get('num_joints', 7)) + (1 if has_gripper else 0)
             else:
-                action_dim = 8
-        elif (self.config['env_key'].find("so100") != -1):
+                action_dim = 8 if has_gripper else 7
+        elif (env_key.find("so100") != -1):
             action_dim = 6
+        elif (env_key.find("warehouse") != -1):
+            action_dim = 2
 
         actions = np.zeros((len(envs), action_dim))
         request = self._create_request("ACTION", envs, actions)
@@ -372,7 +414,17 @@ class SimulatorVecEnv(DummyVecEnv):
         """
         env_stack = []
         for obs, env in zip(observations, self.envs):
-            env_stack.append(env.update(ast.literal_eval(obs), time_step_update))
+            parsed = obs
+            if isinstance(obs, (str, bytes)):
+                # Expect legacy Python-literal string from Unity; fall back to JSON if needed
+                try:
+                    parsed = ast.literal_eval(obs)
+                except Exception:
+                    try:
+                        parsed = json.loads(obs)
+                    except Exception:
+                        raise ValueError(f"Failed to parse observation for env id={env.id}: {obs!r}")
+            env_stack.append(env.update(parsed, time_step_update))
 
         return [list(param) for param in zip(*env_stack)]
 
@@ -384,7 +436,21 @@ class SimulatorVecEnv(DummyVecEnv):
         pass
 
     def close(self):
-        SimulatorVecEnv._client.terminate()
+        # Cleanly close the underlying transport if applicable
+        try:
+            if self.communication_type == 'ROS' and SimulatorVecEnv._client is not None:
+                SimulatorVecEnv._client.terminate()
+            elif self.communication_type == 'ZMQ':
+                try:
+                    self.socket.close(0)
+                finally:
+                    self.context.term()
+            elif self.communication_type == 'GRPC':
+                if hasattr(self, 'channel') and self.channel is not None:
+                    self.channel.close()
+        except Exception:
+            # Swallow close-time exceptions to avoid masking teardown
+            pass
 
     def __len__(self):
         return self.nenvs
@@ -394,9 +460,9 @@ class SimulatorVecEnv(DummyVecEnv):
             Override default vectorized render behaviour. SB3 renders all envs into a single window. This behaviour is
             incompatible with our task_monitor.py implementation. Instead render each env into separate windows
         """
-        if(self.config["env_key"] != 'iiwa_joint_vel'):
+        if(self.gym.get("env_key") != 'iiwa_joint_vel'):
             for env in self.envs:
-                if(env.dart_sim.enable_viewer): # Render is active
+                if hasattr(env, 'dart_sim') and getattr(env.dart_sim, 'enable_viewer', False): # Render is active
                     env.render()
 
     # Calling destructor

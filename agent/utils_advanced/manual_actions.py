@@ -29,9 +29,10 @@ def configure_manual_settings_and_get_manual_function(vec_env, manual_actions_di
     # Planar envs: Down -> close -> up #
     if(vec_env.manual_behaviour == "planar_grasping"):
         # Clip gripper action to this limit #
-        if(vec_env.robotic_tool.find("3_gripper") != -1):
+        tool = str(getattr(vec_env, 'ee_model', ''))
+        if ('3F' in tool or tool == 'ROBOTIQ_3F'):
             vec_env.gripper_clip = 90
-        elif(vec_env.robotic_tool.find("2_gripper") != -1):
+        elif ('2F' in tool or tool == 'ROBOTIQ_2F85'):
             vec_env.gripper_clip = 250
         else:
             vec_env.gripper_clip = 90
@@ -77,9 +78,10 @@ def configure_manual_settings_and_get_manual_function(vec_env, manual_actions_di
     # Close the gripper only #
     elif(vec_env.manual_behaviour == "close_gripper"): 
         # Clip gripper action to this limit #
-        if(vec_env.robotic_tool.find("3_gripper") != -1):
+        tool = str(getattr(vec_env, 'ee_model', ''))
+        if ('3F' in tool or tool == 'ROBOTIQ_3F'):
             vec_env.gripper_clip = 90
-        elif(vec_env.robotic_tool.find("2_gripper") != -1):
+        elif ('2F' in tool or tool == 'ROBOTIQ_2F85'):
             vec_env.gripper_clip = 250
         else:
             vec_env.gripper_clip = 90

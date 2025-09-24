@@ -1,5 +1,5 @@
 
-![image](/resources/sim_ai4di_image.png?raw=true)
+![image](/resources/sim_a-iq-ready_image.png?raw=true)
 
 # Main
 
@@ -7,7 +7,7 @@ Virtual Training Platform for Robot Learning
 
 ## Getting started
 
-Start the VTPRL simulator located in the simulator folder, depending on your OS. Once the simulator is started, you should see the Unity logo and a grey background with a lower panel including the "quit" button. The simulator starts a gRPC server and waits for requests on port 9092 (configurable in configuration.xml). At this point, the Python client should be connected to instantiate the manipulator environments in the simulator.
+Start the VTPRL simulator located in the simulator folder, depending on your OS. Once the simulator is started, you should see the VTPRL logo and a grey background with a lower panel including the "quit" button. The simulator starts a gRPC server and waits for requests on port 9092 (configurable in configuration.xml). At this point, the Python client should be connected to instantiate the manipulator/warehouse environments in the simulator.
 
 ## Installation
 
@@ -17,21 +17,13 @@ For the setup with Docker configuration, you can find a Docker image you can sta
 
 # Running locally
 
-First, start your simulator, after which it will load and wait for connections. Following the commands explained in Docker/Commands.txt navigate to the root folder of the repo and run agent/main.py. This should start an example code that instantiates one environment, which appears in the simulator, and starts the training. See main.py for other options.
+First, start your simulator, after which it will load and wait for connections. Following the commands explained in Docker/Commands.txt navigate to the root folder of the repo and run agent/main.py. This should start an example code that instantiates one environment, which appears in the simulator, and starts the model-based evaluation. See main.py for other options.
 
 ## Configuration
 
-1. To configure the simulator, you need to modify the configuration.xml file. The file is read once the simulator is started. If you modify a setting, you need to restart the simulator. If there is an error in the XML after you modify it, the simulator will use default settings (check Troubleshooting). The following settings are relevant:
+1. To configure the simulator, you need to modify the configuration.xml file. The file is read once the simulator is started. If you modify a setting, you need to restart the simulator. If there is an error in the XML after you modify it, the simulator will use default settings (check Troubleshooting). Please refer to [Configuration-Parameters](/docs/Configuration-Parameters.md) for a complete description of all parameters settings.
 
-- **PortNumber** - The port on which the gRPC server from the simulator waits for requests. If you want to modify this (e.g., starting several simulators on different ports, or the port is busy), make sure you change this also on the Python side (in config.py).
-
-- **EnableObservationImage** - Whether to provide an image observation from the simulator in addition to the numeric observation (joint speeds, angles ...). Only set this to true if you need to use image observations for your task, as it slows down the performance significantly. If this is enabled, it will return as many images as there are _<CameraParameters>_ elements, with the specified resolution in _ObservationImageWidth_ and _ObservationImageHeight_.
-
-- **CameraParameters**: Here, you specify the position and rotation of a camera from which you want to view the environment. Camera position is specified in x, y, z coordinates in meters (note that the y value is height in Unity coordinate frame), and rotation in Euler angles in degrees. You can specify multiple CameraParameters elements to be able to view the environment from different angles (You can use the "Switch view" button in the GUI to change views but note that if you also specify _EnableObservationImage_ to True it will slow down the simulation significantly as it will need to render images for each camera at each timestep).
-
-- **MaxJointVelocity** - When controlling the robot in Joint Velocity control, you should pass actions with normalized values in the range \[-1, 1]. These values are then multiplied by MaxJointVelocity to calculate the speed with which the joint should rotate in the positive or negative direction. There is no clipping done, so make sure you always pass normalized action values in the \[-1, 1] range. The current max joint velocity is set to ~57 deg/sec (1 rad/sec). Please do not modify it if not needed, and talk with us about how to do it if you need to, as it might have some side effects.
-
-2. For configuring the Python agent side, there is a config.py file with a parameter dictionary that you can change; there are inline comments explaining the parameters. Besides, the main.py file includes a method for creating sample vectorized environments and the way to set them for RL policy training or control them by model-based policies. Finally, the iiwa_sample_env.py file is an example gym environment for the reach and balance task, showing how and where the state, reward, and terminal condition should be defined.
+2. For configuring the Python agent side, there is a config.py file with a parameter dictionary that you can change; there are inline comments explaining the parameters. Besides, the main.py file includes a method for creating sample vectorized environments and the way to set them for RL policy training or control them by model-based policies. Finally, the iiwa_sample_env.py file is an example gym environment for the reach and balance task, showing how and where the state, reward, and terminal condition should be defined. In the same manner, warehouse_unity_env.py file is an example gym environment for the mobile robot navigation task.
 
 # Troubleshooting 
 
@@ -46,4 +38,6 @@ First, start your simulator, after which it will load and wait for connections. 
 - Maybe the simulator cannot start the gRPC server on the port provided in configuration.xml - check the simulator log file Player.log.
 
 # Authors and acknowledgment
-The work has been performed in the project AI4DI: Artificial Intelligence for Digitizing Industry, under grant agreement No. 826060. The project is co-funded by grants from Germany, Austria, Finland, France, Norway, Latvia, Belgium, Italy, Switzerland, and the Czech Republic, and by the Electronic Component Systems for European Leadership Joint Undertaking (ECSEL JU).
+The work has been performed in the following two projects:
+- AI4DI: Artificial Intelligence for Digitizing Industry, under grant agreement No. 826060. The project is co-funded by grants from Germany, Austria, Finland, France, Norway, Latvia, Belgium, Italy, Switzerland, and the Czech Republic, and by the Electronic Component Systems for European Leadership Joint Undertaking (ECSEL JU).
+- A-IQ READY: Artificial Intelligence using Quantum Measured Information for Realtime Distributed Systems at the Edge, under grant agreement No. 101096658. The project is funded within the Chips Joint Undertaking (Chips JU) - the Public-Private Partnership for research, development, and innovation under Horizon Europe – and National Authorities.
