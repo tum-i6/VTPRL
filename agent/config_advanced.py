@@ -110,6 +110,7 @@ class ConfigAdvanced(Config):
 
         # Manipulator gym environment overrides and extensions
         mg = gym['manipulator_gym_environment']
+        gym['task_monitor'] = True
         
         mg['initial_positions'] = [0, 0, 0, -np.pi/2, 0, np.pi/2, np.pi/2]
 
@@ -130,7 +131,6 @@ class ConfigAdvanced(Config):
 
         # DART-specific advanced overrides
         d = mg['dart']
-        d['task_monitor'] = True
         d['target_mode'] = 'None'
 
         ##########################################################

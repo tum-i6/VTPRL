@@ -22,7 +22,7 @@ import cv2
 import base64
 
 class IiwaEndToEndPlanarGraspingEnv(IiwaNumericalPlanarGraspingEnv):
-    def __init__(self, max_ts, orientation_control, use_ik, ik_by_sns, state_type, use_images=True, enable_render=False, task_monitor=False, target_mode="None", goal_type="box",
+    def __init__(self, max_ts, orientation_control, use_ik, ik_by_sns, state_type, use_images=True, enable_render=False, target_mode="None", goal_type="box",
                  randomBoxesGenerator=None, joints_safety_limit=10, max_joint_vel=20, max_ee_cart_vel=0.035, max_ee_cart_acc =10, max_ee_rot_vel=0.15, max_ee_rot_acc=10,
                  random_initial_joint_positions=False, initial_positions=[0, 0, 0, -np.pi/2, 0, np.pi/2, np.pi/2],
                  noise_enable_rl_obs=False, noise_rl_obs_ratio=0.05, reward_dict=None, agent_kp=0.5, agent_kpr=1.5,
@@ -44,7 +44,7 @@ class IiwaEndToEndPlanarGraspingEnv(IiwaNumericalPlanarGraspingEnv):
             }
             robotic_tool = ee_map.get(end_effector_model, 'default_gripper')
 
-        super().__init__(max_ts=max_ts, orientation_control=orientation_control, use_ik=use_ik, ik_by_sns=ik_by_sns, state_type=state_type, enable_render=enable_render, task_monitor=task_monitor, target_mode=target_mode, goal_type=goal_type, 
+        super().__init__(max_ts=max_ts, orientation_control=orientation_control, use_ik=use_ik, ik_by_sns=ik_by_sns, state_type=state_type, enable_render=enable_render, target_mode=target_mode, goal_type=goal_type, 
                          randomBoxesGenerator=randomBoxesGenerator, joints_safety_limit=joints_safety_limit, max_joint_vel=max_joint_vel, max_ee_cart_vel=max_ee_cart_vel,
                          max_ee_cart_acc=max_ee_cart_acc, max_ee_rot_vel=max_ee_rot_vel, max_ee_rot_acc=max_ee_rot_acc,
                          random_initial_joint_positions=random_initial_joint_positions, initial_positions=initial_positions,noise_enable_rl_obs=False,noise_rl_obs_ratio=0.05,
@@ -61,11 +61,6 @@ class IiwaEndToEndPlanarGraspingEnv(IiwaNumericalPlanarGraspingEnv):
         ###################################
         self.observation_space = spaces.Box(low=0, high=255, shape=(self.image_size, self.image_size, 3), dtype=np.uint8)
 
-        #######################################################
-        # Set-up the task_monitor                             #
-        #######################################################
-        if self.task_monitor:
-            self._create_task_monitor()
 
     def get_state(self):
         """
@@ -147,7 +142,7 @@ class IiwaEndToEndPlanarGraspingEnv(IiwaNumericalPlanarGraspingEnv):
         base64_bytes = observation['ImageData'][0].encode('ascii')
         image_bytes = base64.b64decode(base64_bytes)
         image = np.frombuffer(image_bytes, np.uint8)
-        image = cv2.imdecode(image, cv2.IMREAD_COLOR) 
+        image = cv2.imdecode(image, cv2.IMREAD_COLOR)
         # cv2.IMREAD_GRAYSCALE - for faster processing but with lower performance (depending on the task)
 
         #print(image.shape)
@@ -192,108 +187,13 @@ class IiwaEndToEndPlanarGraspingEnv(IiwaNumericalPlanarGraspingEnv):
             return img.float()
         # Sample code ends #
     """
-
-    ##############
-    # Monitoring #
-    ##############
-    def _create_task_monitor(self, plot_joint_position=True, plot_joint_velocity=True, plot_joint_acceleration=False, plot_joint_torque=True, plot_agent_state=False, plot_agent_action=True, plot_agent_reward=True):
-        """
-            Override the task monitor definition since we have changed the get_state() function and the actions dimensions
-            refer to iiwa_dart.py and task_monitor.py for more
-        """
-        from PySide2.QtWidgets import QApplication
-        from utils.task_monitor import TaskMonitor
-
-        if not QApplication.instance():
-            self.monitor_app = QApplication([])
-        else:
-            self.monitor_app = QApplication.instance()
-
-        plot_agent_state = False
-        # Unused -> state observation is an image #
-        # Do not visualize the agent state        #
-        self.monitor_n_states = 2
-        state_chart_categories = ['X', 'Z']
-        if self.action_space_dimension == 3:
-            self.monitor_n_states += 1
-            state_chart_categories = ['X', 'Z', 'RY']
-        # Unused ###################################
-
-        self.monitor_window = \
-            TaskMonitor(plot_joint_position=plot_joint_position,
-                        param_joint_position={'dim': self.n_links,
-                                              'min': np.rad2deg(self.MIN_JOINT_POS),
-                                              'max': np.rad2deg(self.MAX_JOINT_POS),
-                                              'cat': [str(1 + value) for value in list(range(self.n_links))],
-                                              'zone': 10.0,
-                                              'title': "Joint Position [" + u"\N{DEGREE SIGN}" + "]"},
-                        plot_joint_velocity=plot_joint_velocity,
-                        param_joint_velocity={'dim': self.n_links,
-                                              'min': np.rad2deg(-self.MAX_JOINT_VEL),
-                                              'max': np.rad2deg(+self.MAX_JOINT_VEL),
-                                              'cat': [str(1 + value) for value in list(range(self.n_links))],
-                                              'zone': 5.0,
-                                              'title': "Joint Velocity [" + u"\N{DEGREE SIGN}" + "/s]"},
-                        plot_joint_acceleration=plot_joint_acceleration,
-                        param_joint_acceleration={'dim': self.n_links,
-                                                  'min': np.rad2deg(-self.MAX_JOINT_ACC),
-                                                  'max': np.rad2deg(+self.MAX_JOINT_ACC),
-                                                  'cat': [str(1 + value) for value in list(range(self.n_links))],
-                                                  'title': "Joint Acceleration [" + u"\N{DEGREE SIGN}" + "/s^2]"},
-                        plot_joint_torque=plot_joint_torque,
-                        param_joint_torque={'dim': self.n_links,
-                                            'min': -self.MAX_JOINT_TORQUE,
-                                            'max': +self.MAX_JOINT_TORQUE,
-                                            'cat': [str(1 + value) for value in list(range(self.n_links))],
-                                            'zone': 5.0,
-                                            'title': "Joint Torque [Nm]"},
-                        plot_agent_state=plot_agent_state,
-                        param_agent_state={'dim': self.monitor_n_states,
-                                           'min': self.observation_space.low[0:self.monitor_n_states],
-                                           'max': self.observation_space.high[0:self.monitor_n_states],
-                                           'cat': state_chart_categories,
-                                           'title': "Reaching Target Error"},
-                        plot_agent_action=plot_agent_action,
-                        param_agent_action={'dim': self.action_space_dimension,
-                                            'min': self.action_space.low,
-                                            'max': self.action_space.high,
-                                            'cat': [str(1 + value) for value in
-                                                    list(range(self.action_space_dimension))],
-                                            'title': "Normalized Command"},
-                        plot_agent_reward=plot_agent_reward,
-                        param_agent_reward={'dim': 1,
-                                            'min': -3.0,
-                                            'max': +3.0,
-                                            'cat': ['r'],
-                                            'title': "Step Reward"},
-                        )
-
-        self.monitor_window.show()
-        self.monitor_window.correct_size()
-
     def render(self, mode='human', monitor_real_values=False, joint_torques=None):
         """
             Override the render definition since we have changed the get_state() function and the actions dimensions
                 Note: we do not keep the joints positions in the state of the agent
-            refer to iiwa_dart.py and task_monitor.py for more
+            refer to iiwa_dart.py for more
         """
         if not self.dart_sim.enable_viewer:
             return False
-
-        if self.task_monitor:
-            if self.monitor_window.plot_joint_torque:
-                if monitor_real_values and joint_torques is not None:
-                    joint_torques = joint_torques
-                else:
-                    self.dart_sim.chain.computeInverseDynamics()
-                    joint_torques = self.dart_sim.chain.getForces()
-
-            self.monitor_window.update_values(values_joint_position=np.rad2deg(self.dart_sim.chain.getPositions()),
-                                              values_joint_velocity=np.rad2deg(self.dart_sim.chain.getVelocities()),
-                                              values_joint_acceleration=np.rad2deg(self.dart_sim.chain.getAccelerations()),
-                                              values_joint_torque=joint_torques,
-                                              values_agent_action=self.action_state,
-                                              values_agent_reward=[self.reward_state])
-            self.monitor_app.processEvents()
 
         return self.dart_sim.render(mode=mode)

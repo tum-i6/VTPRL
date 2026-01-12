@@ -80,6 +80,8 @@ class IiwaJointVelEnv(core.Env):
         low = -high
         self.action_space = spaces.Box(low=low, high=high, dtype=np.float32)
 
+        self.reward_range = (-5.0, 0.0)
+
     def update(self, observation, time_step_update=True):
         """
             a replacement of the standart step() method used in OpenAI gym. Unlike typical gym environment where the step()

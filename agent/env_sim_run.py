@@ -22,13 +22,13 @@ if __name__ == '__main__':
     if env_key == 'iiwa_sample_dart_unity_env':
         robot = IiwaDartEnv(max_ts=gym['max_time_step'], orientation_control=d['orientation_control'],
                             use_ik=d['use_inverse_kinematics'], ik_by_sns=d['linear_motion_conservation'],
-                            enable_render=d['enable_dart_viewer'], task_monitor=d['task_monitor'],
+                            enable_render=d['enable_dart_viewer'],
                             target_mode=d['target_mode'], with_objects=d['with_objects'])
 
     elif env_key == 'so100_sample_dart_unity_env':
         robot = SO100DartEnv(max_ts=gym['max_time_step'], orientation_control=d['orientation_control'],
                              use_ik=d['use_inverse_kinematics'], ik_by_sns=d['linear_motion_conservation'],
-                             enable_render=d['enable_dart_viewer'], task_monitor=d['task_monitor'],
+                             enable_render=d['enable_dart_viewer'],
                              target_mode=d['target_mode'], with_objects=d['with_objects'])
 
     else:

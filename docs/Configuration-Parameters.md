@@ -228,6 +228,9 @@ When `EnvironmentMode` is Warehouse, `Observation` should be `WarehouseObservati
 - Ground: GroundParameters
   Description: Warehouse floor/ground material and walls.
 
+- Items: ItemParameters[]
+  Description: Transport items used for item/target creation. Only the first item is commonly used by the CLI overrides, but the XML can contain more.
+
 - EnableObstacleManager: bool
   Description: Master toggle to spawn/manage static and dynamic obstacles.
   Default: true
@@ -285,6 +288,74 @@ When `EnvironmentMode` is Warehouse, `Observation` should be `WarehouseObservati
 - GroundMaterialGridStaticFriction: float[]
   Default: [1.0]
 
+### ItemParameters (WarehouseEnvironment.Items[n])
+
+- ItemType: SPHERE | BOX
+  Default: BOX
+
+- ItemSize: Vector3 (x,y,z meters)
+  Default: 0.1,0.1,0.1
+
+- ItemMass: float (kg)
+  Default: 1.0
+
+- ItemCenterOfMass: Vector3 (x,y,z meters)
+  Default: 0,0,0
+
+- ItemLinearDamping: float
+  Default: 2.0
+
+- ItemObservability: bool
+  Default: true
+
+- ItemMaterial: HOMOGENEOUS | HETEROGENEOUS
+  Default: HOMOGENEOUS
+
+- VisualizeItemMaterial: bool
+  Default: false
+
+- ItemMaterialColor: Color (r,g,b,a)
+  Default: green
+
+- TargetMaterialColor: Color (r,g,b,a)
+  Default: red
+
+- ItemMaterialGridX: float[]
+  Default: [1.0]
+
+- ItemMaterialGridY: float[]
+  Default: [1.0]
+
+- ItemMaterialGridZ: float[]
+  Default: [1.0]
+
+- ItemMaterialGridDynamicFriction: float[] (0–1)
+  Default: [0.6]
+
+- ItemMaterialGridStaticFriction: float[] (0–1)
+  Default: [0.6]
+
+- RandomizeItemMass: bool
+  Default: false
+
+- ItemMassRandomizationRange: float
+  Default: 0.1
+
+- RandomizeItemCenterOfMass: bool
+  Default: false
+
+- ItemCenterOfMassRandomizationRange: Vector3
+  Default: 0.1,0.1,0.1
+
+- RandomizeItemFriction: bool
+  Default: false
+
+- ItemDynamicFrictionRandomizationRange: float
+  Default: 0.1
+
+- ItemStaticFrictionRandomizationRange: float
+  Default: 0.1
+
 ### StaticObstacleParameters (WarehouseEnvironment.StaticObstacles[n])
 
 - ObstacleType: BOX
@@ -293,67 +364,19 @@ When `EnvironmentMode` is Warehouse, `Observation` should be `WarehouseObservati
 - ObstacleSize: Vector3 (x,y,z meters)
   Default: 1.0,1.0,1.0
 
-- ObstacleMass: float (kg)
-  Default: 10
-
-- ObstacleCenterOfMass: Vector3 (x,y,z meters)
-  Default: 0,0,0
-
-- ObstacleLinearDamping: float
-  Default: 2
-
 - ObstacleObservability: bool
-  Default: false
-
-- ObstacleMaterial: HOMOGENEOUS | HETEROGENEOUS
-  Default: HOMOGENEOUS
-
-- VisualizeObstacleMaterial: bool
   Default: false
 
 - ObstacleMaterialColor: Color (r,g,b,a)
   Default: green
 
-- ObstacleMaterialGridX: float[]
-  Default: [1.0]
-
-- ObstacleMaterialGridY: float[]
-  Default: [1.0]
-
-- ObstacleMaterialGridZ: float[]
-  Default: [1.0]
-
-- ObstacleMaterialGridDynamicFriction: float[] (0–1)
-  Default: [0.6]
-
-- ObstacleMaterialGridStaticFriction: float[] (0–1)
-  Default: [0.6]
-
-- RandomizeObstacleMass: bool
-  Default: false
-
-- ObstacleMassRandomizationRange: float
-  Default: 1.0
-
-- RandomizeObstacleCenterOfMass: bool
-  Default: false
-
-- ObstacleCenterOfMassRandomizationRange: Vector3
-  Default: 0.5,0.5,0.5
-
-- RandomizeObstacleFriction: bool
-  Default: false
-
-- ObstacleDynamicFrictionRandomizationRange: float
-  Default: 0.1
-
-- ObstacleStaticFrictionRandomizationRange: float
-  Default: 0.1
-
 ### DynamicObstaclesParameters (WarehouseEnvironment.DynamicObstacles)
 
 - DynamicObstacleCount: int
   Default: 0
+
+- DynamicObstacleObservability: bool
+  Default: false
 
 - DynamicObstacleMotion: None | Random | Circle | Linear
   Default: None
@@ -411,9 +434,6 @@ These settings control rendered images and randomization. Warehouse adds laser-s
 
 - ObservationImageBackgroundColor: Color (r,g,b,a)
   Default: white
-
-- EnableGrayscale: bool
-  Default: false
 
 - EnableSegmentation: bool
   Default: false
@@ -684,6 +704,7 @@ Warehouse Environment
 
 Dynamic Obstacles (Warehouse)
 - -wdoc, --warehouse-dynamic-obstacle-count → Configuration.WarehouseEnvironment.DynamicObstacles.DynamicObstacleCount
+- -wdoo, --warehouse-dynamic-obstacle-observability → Configuration.WarehouseEnvironment.DynamicObstacles.DynamicObstacleObservability
 - -wdom, --warehouse-dynamic-obstacle-motion → Configuration.WarehouseEnvironment.DynamicObstacles.DynamicObstacleMotion
 - -wdomdfr, --warehouse-dynamic-obstacle-min-distance-from-robot → Configuration.WarehouseEnvironment.DynamicObstacles.DynamicObstacleMinDistanceFromRobot
 - -wdomls, --warehouse-dynamic-obstacle-max-linear-speed → Configuration.WarehouseEnvironment.DynamicObstacles.MaxLinearSpeed
@@ -702,7 +723,6 @@ Observation
 - -oiw, --observation-image-width → Configuration.Observation.ObservationImageWidth
 - -oih, --observation-image-height → Configuration.Observation.ObservationImageHeight
 - -oibc, --observation-image-background-color → Configuration.Observation.ObservationImageBackgroundColor
-- -eg, --enable-grayscale → Configuration.Observation.EnableGrayscale
 - -es, --enable-segmentation → Configuration.Observation.EnableSegmentation
 - -rsc, --robot-segmentation-color → Configuration.Observation.RobotSegmentationColor
 - -esd, --enable-shadows → Configuration.Observation.EnableShadows
@@ -729,7 +749,6 @@ Warehouse Observation (Laser)
 This section expands on parameters that didn’t have an explicit description above and clarifies how the simulator uses them.
 
 Simulation
-- PortNumber: The port on which the gRPC server from the simulator waits for requests. If you want to modify this (e.g., starting several simulators on different ports, or the port is busy), make sure you change this also on the Python side (in config.py).
 - TimestepDurationInSeconds: Controls observation/control cadence; affects perceived dynamics and log sizes.
 - PhysicsSimulationIncrementInSeconds: Substep size; stability improves with smaller values at higher CPU cost.
 - ImprovedPatchFriction: Prevents unrealistically high friction forces; recommended on.
@@ -750,8 +769,6 @@ Dynamic Obstacles
 - CircleMotionTravelSpeed with CircleMotionCurvature sets angular speed ω = v·k; sign of k defines rotation direction.
 
 Observation and Cameras
-- EnableObservationImage: Whether to provide an image observation from the simulator in addition to the numeric observation (joint speeds, angles ...). Only set this to true if you need to use image observations for your task, as it slows down the performance significantly. If this is enabled, it will return as many images as there are _<CameraParameters>_ elements, with the specified resolution in _ObservationImageWidth_ and _ObservationImageHeight_.
 - ObservationImageEncoding and Quality: PNG is lossless; JPG trades accuracy for smaller bandwidth/storage.
 - CameraPositionRandomizationRangeInMeters and CameraRotationRandomizationRangeInDegrees apply per-camera when RandomizeAppearance is true.
 - ObservationCameras[0] is the default camera targeted by CLI flags; XML can provide multiple cameras.
-- CameraParameters: Here, you specify the position and rotation of a camera from which you want to view the environment. Camera position is specified in x, y, z coordinates in meters (note that the y value is height in Unity coordinate frame), and rotation in Euler angles in degrees. You can specify multiple CameraParameters elements to be able to view the environment from different angles (You can use the "Switch view" button in the GUI to change views but note that if you also specify _EnableObservationImage_ to True it will slow down the simulation significantly as it will need to render images for each camera at each timestep).

@@ -27,7 +27,7 @@ from gym import spaces
 from envs.iiwa_sample_env import IiwaSampleEnv
 
 class IiwaNumericalPlanarGraspingEnv(IiwaSampleEnv):
-    def __init__(self, max_ts, orientation_control, use_ik, ik_by_sns, state_type, enable_render=False, task_monitor=False,
+    def __init__(self, max_ts, orientation_control, use_ik, ik_by_sns, state_type, enable_render=False,
                  with_objects=False, target_mode="None", goal_type="box", randomBoxesGenerator=None,
                  joints_safety_limit=10, max_joint_vel=20, max_ee_cart_vel=0.035, max_ee_cart_acc =10, max_ee_rot_vel=0.15, max_ee_rot_acc=10,
                  random_initial_joint_positions=False, initial_positions=[0, 0, 0, -np.pi/2, 0, np.pi/2, np.pi/2], noise_enable_rl_obs=False, noise_rl_obs_ratio=0.05,
@@ -63,8 +63,8 @@ class IiwaNumericalPlanarGraspingEnv(IiwaSampleEnv):
             print("Warning: initial_positions are different - make sure you have adapted the planar envs and manual actions correctly")
 
         # the init of the parent class should be always called, this will in the end call reset() once
-        super().__init__(max_ts=max_ts, orientation_control=orientation_control, use_ik=use_ik, ik_by_sns=ik_by_sns, state_type=state_type, enable_render=enable_render, task_monitor=task_monitor, 
-                         with_objects=with_objects, target_mode=target_mode, goal_type=goal_type, joints_safety_limit=joints_safety_limit, max_joint_vel=max_joint_vel, max_ee_cart_vel=max_ee_cart_vel, 
+        super().__init__(max_ts=max_ts, orientation_control=orientation_control, use_ik=use_ik, ik_by_sns=ik_by_sns, state_type=state_type, enable_render=enable_render,
+                         with_objects=with_objects, target_mode=target_mode, goal_type=goal_type, joints_safety_limit=joints_safety_limit, max_joint_vel=max_joint_vel, max_ee_cart_vel=max_ee_cart_vel,
                          max_ee_cart_acc=max_ee_cart_acc, max_ee_rot_vel=max_ee_rot_vel, max_ee_rot_acc=max_ee_rot_acc, random_initial_joint_positions=random_initial_joint_positions, initial_positions=initial_positions,
                          robotic_tool=robotic_tool, env_id=env_id)
 
@@ -179,13 +179,6 @@ class IiwaNumericalPlanarGraspingEnv(IiwaSampleEnv):
         self.action_space = spaces.Box(-np.ones(self.action_space_dimension), np.ones(self.action_space_dimension), dtype=np.float32)
 
         self.observation_space = spaces.Box(-np.ones(self.observation_space_dimension), np.ones(self.observation_space_dimension), dtype=np.float32)
-
-        ########################################################################
-        # Set-up the task_monitor. The re-implementation resides in this class #
-        # since the dims of action, and obs spaces have been overridden above  #
-        ########################################################################
-        if self.task_monitor:
-            self._create_task_monitor()
 
     def _update_env_flags(self):
         # Collision or joints limits overpassed                                       #
@@ -420,82 +413,6 @@ class IiwaNumericalPlanarGraspingEnv(IiwaSampleEnv):
         self.prev_action = self.action_state
 
         return self._state, self._reward, self._done, self._info
-
-    ###########
-    # Monitor #
-    ###########
-    def _create_task_monitor(self, plot_joint_position=True, plot_joint_velocity=True, plot_joint_acceleration=False, plot_joint_torque=True, 
-                                   plot_agent_state=True, plot_agent_action=True, plot_agent_reward=True):
-        """
-            Override the task monitor definition since we have changed the get_state() function and the actions dimensions
-            refer to iiwa_dart.py and task_monitor.py for more
-        """
-
-        from PySide2.QtWidgets import QApplication
-        from utils.task_monitor import TaskMonitor
-
-        if not QApplication.instance():
-            self.monitor_app = QApplication([])
-        else:
-            self.monitor_app = QApplication.instance()
-
-        self.monitor_n_states = 2
-        state_chart_categories = ['X', 'Z']
-        if self.action_space_dimension == 3:
-            self.monitor_n_states += 1
-            state_chart_categories = ['X', 'Z', 'RY']
-
-        self.monitor_window = \
-            TaskMonitor(plot_joint_position=plot_joint_position,
-                        param_joint_position={'dim': self.n_links,
-                                              'min': np.rad2deg(self.MIN_JOINT_POS),
-                                              'max': np.rad2deg(self.MAX_JOINT_POS),
-                                              'cat': [str(1 + value) for value in list(range(self.n_links))],
-                                              'zone': 10.0,
-                                              'title': "Joint Position [" + u"\N{DEGREE SIGN}" + "]"},
-                        plot_joint_velocity=plot_joint_velocity,
-                        param_joint_velocity={'dim': self.n_links,
-                                              'min': np.rad2deg(-self.MAX_JOINT_VEL),
-                                              'max': np.rad2deg(+self.MAX_JOINT_VEL),
-                                              'cat': [str(1 + value) for value in list(range(self.n_links))],
-                                              'zone': 5.0,
-                                              'title': "Joint Velocity [" + u"\N{DEGREE SIGN}" + "/s]"},
-                        plot_joint_acceleration=plot_joint_acceleration,
-                        param_joint_acceleration={'dim': self.n_links,
-                                                  'min': np.rad2deg(-self.MAX_JOINT_ACC),
-                                                  'max': np.rad2deg(+self.MAX_JOINT_ACC),
-                                                  'cat': [str(1 + value) for value in list(range(self.n_links))],
-                                                  'title': "Joint Acceleration [" + u"\N{DEGREE SIGN}" + "/s^2]"},
-                        plot_joint_torque=plot_joint_torque,
-                        param_joint_torque={'dim': self.n_links,
-                                            'min': -self.MAX_JOINT_TORQUE,
-                                            'max': +self.MAX_JOINT_TORQUE,
-                                            'cat': [str(1 + value) for value in list(range(self.n_links))],
-                                            'zone': 5.0,
-                                            'title': "Joint Torque [Nm]"},
-                        plot_agent_state=plot_agent_state,
-                        param_agent_state={'dim': self.monitor_n_states,
-                                           'min': self.observation_space.low[0:self.monitor_n_states],
-                                           'max': self.observation_space.high[0:self.monitor_n_states],
-                                           'cat': state_chart_categories,
-                                           'title': "Reaching Target Error"},
-                        plot_agent_action=plot_agent_action,
-                        param_agent_action={'dim': self.action_space_dimension,
-                                            'min': self.action_space.low,
-                                            'max': self.action_space.high,
-                                            'cat': [str(1 + value) for value in
-                                                    list(range(self.action_space_dimension))],
-                                            'title': "Normalized Command"},
-                        plot_agent_reward=plot_agent_reward,
-                        param_agent_reward={'dim': 1,
-                                            'min': -3.0,
-                                            'max': +3.0,
-                                            'cat': ['r'],
-                                            'title': "Step Reward"},
-                        )
-
-        self.monitor_window.show()
-        self.monitor_window.correct_size()
 
     def reset(self, temp=False):
         """

@@ -26,7 +26,7 @@ from envs_dart.iiwa_dart_unity import IiwaDartUnityEnv
 
 class IiwaSampleEnv(IiwaDartUnityEnv):
     def __init__(self, max_ts, orientation_control, use_ik, ik_by_sns,
-                 state_type, enable_render=False, task_monitor=False, 
+                 state_type, enable_render=False,
                  with_objects=False, target_mode="random", target_path="/misc/generated_random_targets/cart_pose_7dof.csv", goal_type="target",
                  joints_safety_limit=0.0, max_joint_vel=20.0, max_ee_cart_vel=10.0, max_ee_cart_acc =3.0, max_ee_rot_vel=4.0, max_ee_rot_acc=1.2,
                  random_initial_joint_positions=False, initial_positions=[0, 0, 0, 0, 0, 0, 0],
@@ -82,7 +82,7 @@ class IiwaSampleEnv(IiwaDartUnityEnv):
             robotic_tool = ee_map.get(end_effector_model, 'default_gripper')
 
         super().__init__(max_ts=max_ts, orientation_control=orientation_control, use_ik=use_ik, ik_by_sns=ik_by_sns,
-                         state_type=state_type, robotic_tool=robotic_tool, enable_render=enable_render, task_monitor=task_monitor,
+                         state_type=state_type, robotic_tool=robotic_tool, enable_render=enable_render,
                          with_objects=with_objects, target_mode=target_mode, target_path=target_path, viewport=viewport,
                          random_initial_joint_positions=random_initial_joint_positions, initial_positions=initial_positions, env_id=env_id)
 
@@ -205,6 +205,8 @@ class IiwaSampleEnv(IiwaDartUnityEnv):
         self.action_space = spaces.Box(-np.ones(self.action_space_dimension, dtype=np.float32), np.ones(self.action_space_dimension, dtype=np.float32), dtype=np.float32)
 
         self.observation_space = spaces.Box(low.astype(np.float32), high.astype(np.float32), dtype=np.float32)
+
+        self.reward_range = (-0.05, 0.05)
 
     def _update_env_flags(self):
         ###########################################################################################
@@ -474,8 +476,10 @@ class IiwaSampleEnv(IiwaDartUnityEnv):
         """
         self.current_obs = observation['Observation']
 
-        if self.save_image:
-            self._unity_retrieve_observation_image(observation['ImageData'])
+        if 'ImageData' in observation:
+            self._unity_retrieve_observation_images(observation['ImageData'])
+        else:
+            self._monitor_image_bytes = None
 
         # the methods below handles synchronizing states of the DART kinematic chain with the observation from Unity
         # hence it should be always called

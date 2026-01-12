@@ -11,9 +11,11 @@ Best practices:
 
 Run this script to update the Unity configuration.xml, or edit fields manually.
 """
+
 import os
 import numpy as np
 from utils.simulator_configuration import update_simulator_configuration
+
 
 class Config:
     def __init__(self):
@@ -74,7 +76,7 @@ class Config:
         """
         return {
             # Common
-            'max_time_step': 4000,                                                      # Episode length in simulation steps
+            'max_time_step': 1000,                                                      # Episode length in simulation steps
 
             # available manipulator environments (*) 'env_key' should include 'iiwa' or 'so100' -- relevant to set Unity's manipulator_model
             # 'env_key': 'iiwa_sample_dart_unity_env',                                    # For control in task space with dart
@@ -92,6 +94,9 @@ class Config:
             # vectorized environments to run in parallel, 8, 16, ...
             # you may need to restart unity
             'num_envs': 1,                                                              # Number of parallel vectorized environments to launch
+
+            # enable task monitor to visualize states, velocities, agent actions, reward of the robot.
+            'task_monitor': True,                                                       # Show live task monitor overlay GUI
 
             # Sub-environments
             'manipulator_gym_environment': Config.get_manipulator_gym_environment_dict(),   # Manipulator-specific gym settings (sub-dict)
@@ -128,26 +133,47 @@ class Config:
     def get_warehouse_gym_environment_dict():
         """Warehouse-specific gym environment settings (agent-side only)."""
         return {
-            'max_v': 1.0,                                                               # Max forward linear velocity command [m/s]
-            'max_omega': 1.0,                                                           # Max yaw rate command [rad/s]
-            'use_laser_scan': False,                                                    # Whether to include laser scan in observations
-            'laser_count': 0,                                                           # e.g., 180 or 360
             'normalize_obs': False,                                                     # Normalize observations to roughly [-1, 1]
             'pos_norm': 10.0,                                                           # meters; scales x,y,dx,dy
             'yaw_norm': float(np.pi),                                                   # radians; scales yaw, dyaw
-            'success_distance_threshold': 0.10,                                         # meters
-            'success_yaw_threshold': np.deg2rad(10),                                    # Success threshold for yaw error [rad]
+            'success_distance_threshold': 0.20,                                         # Success threshold for distance to target [m]
+            'success_yaw_threshold': np.deg2rad(20),                                    # Success threshold for yaw error [rad]
             'step_penalty': 0.01,                                                       # Per-step penalty applied to encourage faster completion
             'success_reward': 1.0,                                                      # Reward granted when reaching success conditions
-            'collision_penalty': 1.0,                                                   # Penalty applied when colliding with environment/objects
-            'distance_weight': 0.0,                                                     # Weight of distance-based shaping term in reward
+            'collision_penalty': 0.0,                                                   # Penalty applied when colliding with environment/objects
+            'distance_weight': 0.2,                                                     # Weight of distance-based shaping term in reward
             'yaw_weight': 0.0,                                                          # Weight of yaw-based shaping term in reward
             'num_joints': 3,                                                            # Number of controllable joints/DoFs for the AMR model
-            'initial_positions': [0.0, 0.0, 0.0],                                       # Initial joint positions of the AMR [rad or m depending on joint]
-            'initial_velocities': [0.0, 0.0, 0.0],                                      # Initial joint velocities of the AMR
-            'target_pose_unity': [4.0, 0.05, 2.0, 0.0, 0.0, 0.0],                       # Target pose in Unity coords [x,y,z,roll,pitch,yaw]
-            'object_pose_unity': [-3.0, 0.505, -2.0, 0.0, 0.0, 0.0],                    # Object pose in Unity coords [x,y,z,roll,pitch,yaw]
-            'robot_pose_unity': [2.0, 0.0, 0.0, 0.0, 0.0, 0.0],                         # Robot spawn pose in Unity coords [x,y,z,roll,pitch,yaw]
+            'randomize_spawn_poses': True,                                              # Randomize robot/target/object poses each episode instead of the fixed values below
+            'spawn_min_separation': 2.0,                                                # Minimum separation [m] between robot/target/object when randomizing poses
+            'target_pose': [-5.5, 0.0, 0.0],                                            # Fixed target pose [x, y, yaw]
+            'object_pose': [-4.2, 0.0, 0.0],                                            # Fixed obstacle pose [x, y, yaw]
+            'robot_pose': [2.0, 0.0, 0.0],                                              # Fixed robot spawn pose [x, y, yaw]
+            'laser_sensor_offset': (0.29, 0.0),                                         # Laser sensor offset in Unity chassis frame (x,z)
+
+            # NavMesh rasterization parameters
+            'navmesh_occupancy_resolution': 0.1,                                        # Grid resolution [m] when rasterizing NavMesh to occupancy
+            'navmesh_occupancy_padding_cells': 1,                                       # Padding cells applied around NavMesh bounds in occupancy grid
+            'navmesh_occupancy_rotation_deg': 0.0,                                      # Rotation [deg] applied when rasterizing NavMesh
+
+            # DWA local planner parameters
+            'dwa_freq': 50.0,                                                           # Control frequency [Hz]
+            'dwa_lookahead': 1.0,                                                       # Prediction horizon [s]
+            'dwa_min_linear_vel': 0.0,                                                  # Minimum linear velocity [m/s]
+            'dwa_max_linear_vel': 0.8,                                                  # Maximum linear velocity [m/s]
+            'dwa_min_angular_vel': -0.5,                                                # Minimum angular velocity [rad/s]
+            'dwa_max_angular_vel': 0.5,                                                 # Maximum angular velocity [rad/s]
+            'dwa_max_acc': 1.0,                                                         # Maximum linear acceleration [m/s^2]
+            'dwa_max_dec': 1.0,                                                         # Maximum linear deceleration [m/s^2]
+            'dwa_robot_radius': 0.35,                                                   # Robot radius for collision checking [m]
+            'dwa_safety_distance': 0.3,                                                 # Safety distance from obstacles [m]
+            'dwa_min_dist_goal': 0.1,                                                   # Distance tolerance to consider goal reached [m]
+            'dwa_res_lin_vel_space': 11,                                                # Sampling resolution for linear velocity
+            'dwa_res_ang_vel_space': 11,                                                # Sampling resolution for angular velocity
+            'dwa_gain_glob_path': 3.0,                                                  # Weight for global path tracking term
+            'dwa_gain_angle_to_goal': 2.0,                                              # Weight for heading-to-goal term
+            'dwa_gain_vel': 1.0,                                                        # Weight favoring higher forward velocity
+            'dwa_gain_prox_to_obst': 1.0,                                               # Weight penalizing proximity to obstacles
         }
 
     @staticmethod
@@ -168,10 +194,6 @@ class Config:
             # Important: Use it when evaluating an agent (e.g. checkpoint). Only for debugging when training an RL agent ('simulation_mode': 'train') - set to False in this case
             # Advanced:  with 'weights & biases', you can log videos during training
             'enable_dart_viewer': False,                                                # Render task in DART viewer (debug/visualization)
-
-            # enable task monitor to visualize states, velocities, agent actions, reward of the robot.
-            # 'enable_dart_viewer' should be set to True
-            'task_monitor': False,                                                      # Show live task monitor overlay in DART viewer
 
             # whether to load additional objects in the DART simulation and viewer - ground, background, etc.
             'with_objects': False,                                                      # Load ground/background/objects into DART scene for context
@@ -214,6 +236,7 @@ class Config:
             'communication_type': 'GRPC',                                               # (*) Options: GRPC, GRPC_NRP, ROS or ZMQ
             'ip_address': 'localhost',                                                  # (*) The ip address of the simulator server -- 'host.docker.internal' (use for windows and docker),  'localhost' (use for linux for connections on local machine)
             'port_number': '9092',                                                      # (*) Port number for communication with the simulator
+            'grpc_timeout_seconds': 60.0,                                               # Timeout in float seconds applied to individual gRPC RPCs; set to 0/None to disable client-side deadlines
             'timestep_duration_in_seconds': 0.02,                                       # (*) Agent observation/action control cycle
             'physics_simulation_increment_in_seconds': 0.02,                            # (*) Unity PhysX discrete step update
             'improved_patch_friction': True,                                            # (*) Make PhysX use the friction mode that guarantees static and dynamic friction do not exceed analytical results
@@ -330,11 +353,39 @@ class Config:
                 'ground_material_grid_static_friction': [1.0],                          # (*) Static friction per grid cell (order Z,Y,X)
             },
 
+            # Items (transport targets)
+            'items': [                                                                  # (*) Pool of items the robot can transport
+                {
+                    'item_type': 'BOX',                                                 # (*) Options: 'BOX'
+                    'item_size': [1.0, 1.0, 1.0],                                       # (*) [X, Y, Z] [m] - Item dimensions
+                    'item_mass': 10.0,                                                  # (*) [kg]
+                    'item_center_of_mass': [0.0, 0.0, 0.0],                             # (*) [X, Y, Z] [m] - Center of mass position
+                    'item_linear_damping': 2.0,                                         # (*) Decay rate of linear velocity for item body
+                    'item_observability': True,                                         # (*) Whether the item pose is observable numerically
+                    'item_material': 'HOMOGENEOUS',                                     # (*) Options: 'HOMOGENEOUS' and 'HETEROGENEOUS'
+                    'visualize_item_material': False,                                   # (*) Whether to visualize material heterogeneity of item
+                    'item_material_color': [0.0, 1.0, 0.0, 1.0],                        # (*) [R, G, B, A] -- used when visualize_item_material is False
+                    'target_material_color': [1.0, 0.0, 0.0, 1.0],                      # (*) [R, G, B, A] -- target surface color
+                    'item_material_grid_x': [1.0],                                      # (*) Material homogeneity divisions along X axis
+                    'item_material_grid_y': [1.0],                                      # (*) Material homogeneity divisions along Y axis
+                    'item_material_grid_z': [1.0],                                      # (*) Material homogeneity divisions along Z axis
+                    'item_material_grid_dynamic_friction': [0.6],                       # (*) Dynamic friction per grid cell (order Z,Y,X)
+                    'item_material_grid_static_friction': [0.6],                        # (*) Static friction per grid cell (order Z,Y,X)
+                    'randomize_item_mass': False,                                       # (*) Randomize item mass
+                    'item_mass_randomization_range': 1.0,                               # (*) [kg] - Uniform range around default mass
+                    'randomize_item_center_of_mass': False,                             # (*) Randomize item center of mass
+                    'item_center_of_mass_randomization_range': [0.5, 0.5, 0.5],         # (*) [m] - Range along x,y,z axes
+                    'randomize_item_friction': False,                                   # (*) Randomize item friction coefficients
+                    'item_dynamic_friction_randomization_range': 0.1,                   # (*) Uniform range around default dynamic friction
+                    'item_static_friction_randomization_range': 0.1,                    # (*) Uniform range around default static friction
+                }   
+            ],
+
             # Obstacle manager
-            'enable_obstacle_manager': False,                                           # (*) Enable automatic placement/spawn of obstacles in the map
+            'enable_obstacle_manager': True,                                            # (*) Enable automatic placement/spawn of obstacles in the map
             'obstacle_placement_separation_multiplier': 2.8,                            # (*) Multiplier ensuring minimum separation between obstacles
             'obstacle_spawn_boundary_margin': 0.25,                                     # (*) Margin [m] from boundaries where obstacles cannot spawn
-            'static_obstacle_count': 0,                                                 # (*) Number of static obstacles to spawn (drawn from pool below)
+            'static_obstacle_count': 1,                                                 # (*) Number of static obstacles to spawn (drawn from pool below)
 
             # Static obstacles pool
             'static_obstacles': [                                                       # (*) Pool of static obstacle parameter variants
@@ -342,31 +393,15 @@ class Config:
                 {
                     'obstacle_type': 'BOX',                                             # (*) Options: 'BOX'
                     'obstacle_size': [1.0, 1.0, 1.0],                                   # (*) [X, Y, Z] [m] - Obstacle dimensions
-                    'obstacle_mass': 10.0,                                              # (*) [kg]
-                    'obstacle_center_of_mass': [0.0, 0.0, 0.0],                         # (*) [X, Y, Z] [m] - Center of mass position
-                    'obstacle_linear_damping': 2.0,                                     # (*) Decay rate of linear velocity for obstacle body
-                    'obstacle_observability': False,                                    # (*) Whether the obstacle pose is observable numerically
-                    'obstacle_material': 'HOMOGENEOUS',                                 # (*) Options: 'HOMOGENEOUS' and 'HETEROGENEOUS'
-                    'visualize_obstacle_material': False,                               # (*) Whether to visualize material heterogeneity of obstacle
-                    'obstacle_material_color': [0.0, 1.0, 0.0, 1.0],                    # (*) [R, G, B, A] -- used when visualize_obstacle_material is False
-                    'obstacle_material_grid_x': [1.0],                                  # (*) Material homogeneity divisions along X axis
-                    'obstacle_material_grid_y': [1.0],                                  # (*) Material homogeneity divisions along Y axis
-                    'obstacle_material_grid_z': [1.0],                                  # (*) Material homogeneity divisions along Z axis
-                    'obstacle_material_grid_dynamic_friction': [0.6],                   # (*) Dynamic friction per grid cell (order Z,Y,X)
-                    'obstacle_material_grid_static_friction': [0.6],                    # (*) Static friction per grid cell (order Z,Y,X)
-                    'randomize_obstacle_mass': False,                                   # (*) Randomize obstacle mass
-                    'obstacle_mass_randomization_range': 1.0,                           # (*) [kg] - Uniform range around default mass
-                    'randomize_obstacle_center_of_mass': False,                         # (*) Randomize obstacle center of mass
-                    'obstacle_center_of_mass_randomization_range': [0.5, 0.5, 0.5],     # (*) [m] - Range along x,y,z axes
-                    'randomize_obstacle_friction': False,                               # (*) Randomize obstacle friction coefficients
-                    'obstacle_dynamic_friction_randomization_range': 0.1,               # (*) Uniform range around default dynamic friction
-                    'obstacle_static_friction_randomization_range': 0.1,                # (*) Uniform range around default static friction
+                    'obstacle_observability': True,                                     # (*) Whether the obstacle pose is observable numerically
+                    'obstacle_material_color': [0.0, 1.0, 0.0, 1.0],                    # (*) [R, G, B, A]
                 }
             ],
 
             # Dynamic obstacles
             'dynamic_obstacles': {
-                'dynamic_obstacle_count': 0,                                            # (*) Number of dynamic obstacles to spawn
+                'dynamic_obstacle_count': 1,                                            # (*) Number of dynamic obstacles to spawn
+                'dynamic_obstacle_observability': True,                                 # (*) Whether to stream dynamic obstacle poses
                 'dynamic_obstacle_motion': 'Random',                                    # (*) Motion pattern: None | Random | Circle | Linear
                 'dynamic_obstacle_min_distance_from_robot': 1.6,                        # (*) Minimum spawn distance from the robot [m]
                 'max_linear_speed': 0.2,                                                # (*) Max linear speed for dynamic obstacle [m/s]
@@ -385,14 +420,13 @@ class Config:
         """Configuration for the <Observation> XML section."""
         return {
             # Image settings
-            'enable_observation_image': False,                                          # (*) Use images as state representation. Example code at 'iiwa_joint_vel', _retrieve_image() and 'iiwa_sample_dart_unity_env', update() functions
+            'enable_observation_image': True,                                           # (*) Use images as state representation. Example code at 'iiwa_joint_vel', _retrieve_image() and 'iiwa_sample_dart_unity_env', update() functions
             'save_observation_image_as_file': False,                                    # (*) A boolean defining whether the observation image is sent as observation or stored to the hard drive
             'observation_image_encoding': 'JPG',                                        # (*) Encoding of Unity observation image (losseles 'PNG' or lossy 'JPG')
             'observation_image_quality': 50,                                            # (*) Compression of the lossy JPG image -- from 1 (worst) to 100 (best)
             'observation_image_width': 128,                                             # (*) Observation image width dimension in pixels. See 'iiwa_joint_vel', __init__()
             'observation_image_height': 128,                                            # (*) Observation image height dimension in pixels. See 'iiwa_joint_vel', __init__()
             'observation_image_background_color': [1.0, 1.0, 1.0, 1.0],                 # (*) [R, G, B, A]
-            'enable_grayscale': False,                                                  # (*) Unity observation image as Gray-scale instead of RGB
             'enable_segmentation': False,                                               # (*) Unity observation of robot as one color useful for segmentation
             'robot_segmentation_color': [1.0, 0.0, 1.0, 1.0],                           # (*) [R, G, B, A]
 
@@ -410,12 +444,12 @@ class Config:
             ],
 
             # Appearance/camera randomization
-            'randomize_appearance': False,                                              # (*) Whether to randomize the lighting, the appearance of the environment (colors/viewpoint/background)
-            'camera_position_randomization_range_in_meters': 0.05,                      # (*) [m] - The range to use for uniform sampling when randomizing camera position around its default position
-            'camera_rotation_randomization_range_in_degrees': 3.0,                      # (*) [deg] - The range to use for uniform sampling when randomizing camera rotation around its default rotation along each axis
+            'randomize_appearance': True,                                               # (*) Whether to randomize the lighting, the appearance of the environment (colors/viewpoint/background)
+            'camera_position_randomization_range_in_meters': 0.0,                       # (*) [m] - The range to use for uniform sampling when randomizing camera position around its default position
+            'camera_rotation_randomization_range_in_degrees': 0.0,                      # (*) [deg] - The range to use for uniform sampling when randomizing camera rotation around its default rotation along each axis
 
             # Laser scan (Warehouse)
-            'enable_laser_scan': False,                                                 # (*) Enable 2D laser scanner in the warehouse environment
+            'enable_laser_scan': True,                                                  # (*) Enable 2D laser scanner in the warehouse environment
             'laser_scan': {
                 'range_meters_min': 0.12,                                               # (*) Minimum measurable laser range in meters
                 'range_meters_max': 100.0,                                              # (*) Maximum measurable laser range in meters
@@ -441,7 +475,7 @@ if __name__ == "__main__":
 
     # Change the path if needed
     simulator_path = os.path.dirname(os.path.dirname(os.path.realpath(__file__))) + '/environment/simulator/'
-    simulator_version = 'v1.0.0'
+    simulator_version = 'v1.0.1'
     simulator_platform = 'Windows'  # 'Linux', 'Mac'
     xml_file = simulator_path + simulator_version + '/' + simulator_platform + '/configuration.xml'
 

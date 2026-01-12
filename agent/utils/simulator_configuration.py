@@ -156,6 +156,12 @@ def get_param(config, key):
         if ground_sub and key in ground_sub:
             return ground_sub.get(key)
 
+        items_sub = ware.get('items') if isinstance(ware.get('items'), list) else None
+        if items_sub:
+            for item in items_sub:
+                if isinstance(item, dict) and key in item:
+                    return item.get(key)
+
         dyn_sub = ware.get('dynamic_obstacles') if isinstance(ware.get('dynamic_obstacles'), dict) else None
         if dyn_sub and key in dyn_sub:
             return dyn_sub.get(key)
@@ -341,6 +347,38 @@ def update_simulator_configuration(config, xml_file):
     set_float_array(ground, 'GroundMaterialGridDynamicFriction', get_param(config, 'ground_material_grid_dynamic_friction'))
     set_float_array(ground, 'GroundMaterialGridStaticFriction', get_param(config, 'ground_material_grid_static_friction'))
 
+    # Items (support arrays)
+    warehouse_items = warehouse_env.find('Items') if warehouse_env is not None else None
+    warehouse_items_cfg = get_param(config, 'items')
+    if isinstance(warehouse_items_cfg, list) and len(warehouse_items_cfg) > 0:
+        wi_nodes = ensure_children(warehouse_items, 'ItemParameters', len(warehouse_items_cfg))
+        for i, item_node in enumerate(wi_nodes):
+            ic = warehouse_items_cfg[i] if i < len(warehouse_items_cfg) else {}
+            it_val = ic.get('item_type')
+            set_enum(item_node, 'ItemType', str(it_val).upper() if it_val is not None else None, {'SPHERE','BOX'})
+            set_vec3(item_node, 'ItemSize', ic.get('item_size'))
+            set_text(item_node, 'ItemMass', ic.get('item_mass'))
+            set_vec3(item_node, 'ItemCenterOfMass', ic.get('item_center_of_mass'))
+            set_text(item_node, 'ItemLinearDamping', ic.get('item_linear_damping'))
+            set_bool(item_node, 'ItemObservability', ic.get('item_observability'))
+            im_val = ic.get('item_material')
+            set_enum(item_node, 'ItemMaterial', str(im_val).upper() if im_val is not None else None, {'HOMOGENEOUS','HETEROGENEOUS'})
+            set_bool(item_node, 'VisualizeItemMaterial', ic.get('visualize_item_material'))
+            set_rgba(item_node, 'ItemMaterialColor', ic.get('item_material_color'))
+            set_rgba(item_node, 'TargetMaterialColor', ic.get('target_material_color'))
+            set_float_array(item_node, 'ItemMaterialGridX', ic.get('item_material_grid_x'))
+            set_float_array(item_node, 'ItemMaterialGridY', ic.get('item_material_grid_y'))
+            set_float_array(item_node, 'ItemMaterialGridZ', ic.get('item_material_grid_z'))
+            set_float_array(item_node, 'ItemMaterialGridDynamicFriction', ic.get('item_material_grid_dynamic_friction'))
+            set_float_array(item_node, 'ItemMaterialGridStaticFriction', ic.get('item_material_grid_static_friction'))
+            set_bool(item_node, 'RandomizeItemMass', ic.get('randomize_item_mass'))
+            set_text(item_node, 'ItemMassRandomizationRange', ic.get('item_mass_randomization_range'))
+            set_bool(item_node, 'RandomizeItemCenterOfMass', ic.get('randomize_item_center_of_mass'))
+            set_vec3(item_node, 'ItemCenterOfMassRandomizationRange', ic.get('item_center_of_mass_randomization_range'))
+            set_bool(item_node, 'RandomizeItemFriction', ic.get('randomize_item_friction'))
+            set_text(item_node, 'ItemDynamicFrictionRandomizationRange', ic.get('item_dynamic_friction_randomization_range'))
+            set_text(item_node, 'ItemStaticFrictionRandomizationRange', ic.get('item_static_friction_randomization_range'))
+
     # Obstacle manager
     set_bool(warehouse_env, 'EnableObstacleManager', get_param(config, 'enable_obstacle_manager'))
     set_text(warehouse_env, 'ObstaclePlacementSeparationMultiplier', get_param(config, 'obstacle_placement_separation_multiplier'))
@@ -356,30 +394,14 @@ def update_simulator_configuration(config, xml_file):
             so = static_list[i] if i < len(static_list) else {}
             set_enum(sop, 'ObstacleType', so.get('obstacle_type'), {'BOX'})
             set_vec3(sop, 'ObstacleSize', so.get('obstacle_size'))
-            set_text(sop, 'ObstacleMass', so.get('obstacle_mass'))
-            set_vec3(sop, 'ObstacleCenterOfMass', so.get('obstacle_center_of_mass'))
-            set_text(sop, 'ObstacleLinearDamping', so.get('obstacle_linear_damping'))
             set_bool(sop, 'ObstacleObservability', so.get('obstacle_observability', False))
-            set_enum(sop, 'ObstacleMaterial', so.get('obstacle_material'), {'HOMOGENEOUS','HETEROGENEOUS'})
-            set_bool(sop, 'VisualizeObstacleMaterial', so.get('visualize_obstacle_material', False))
             set_rgba(sop, 'ObstacleMaterialColor', so.get('obstacle_material_color'))
-            set_float_array(sop, 'ObstacleMaterialGridX', so.get('obstacle_material_grid_x'))
-            set_float_array(sop, 'ObstacleMaterialGridY', so.get('obstacle_material_grid_y'))
-            set_float_array(sop, 'ObstacleMaterialGridZ', so.get('obstacle_material_grid_z'))
-            set_float_array(sop, 'ObstacleMaterialGridDynamicFriction', so.get('obstacle_material_grid_dynamic_friction'))
-            set_float_array(sop, 'ObstacleMaterialGridStaticFriction', so.get('obstacle_material_grid_static_friction'))
-            set_bool(sop, 'RandomizeObstacleMass', so.get('randomize_obstacle_mass', False))
-            set_text(sop, 'ObstacleMassRandomizationRange', so.get('obstacle_mass_randomization_range'))
-            set_bool(sop, 'RandomizeObstacleCenterOfMass', so.get('randomize_obstacle_center_of_mass', False))
-            set_vec3(sop, 'ObstacleCenterOfMassRandomizationRange', so.get('obstacle_center_of_mass_randomization_range'))
-            set_bool(sop, 'RandomizeObstacleFriction', so.get('randomize_obstacle_friction', False))
-            set_text(sop, 'ObstacleDynamicFrictionRandomizationRange', so.get('obstacle_dynamic_friction_randomization_range'))
-            set_text(sop, 'ObstacleStaticFrictionRandomizationRange', so.get('obstacle_static_friction_randomization_range'))
 
     # Dynamic obstacles
     dyn = warehouse_env.find('DynamicObstacles') if warehouse_env is not None else None
     dd = get_param(config, 'dynamic_obstacles') or {}
     set_text(dyn, 'DynamicObstacleCount', dd.get('dynamic_obstacle_count'))
+    set_bool(dyn, 'DynamicObstacleObservability', dd.get('dynamic_obstacle_observability'))
     set_enum(dyn, 'DynamicObstacleMotion', dd.get('dynamic_obstacle_motion'), {'None','Random','Circle','Linear'})
     set_text(dyn, 'DynamicObstacleMinDistanceFromRobot', dd.get('dynamic_obstacle_min_distance_from_robot'))
     set_text(dyn, 'MaxLinearSpeed', dd.get('max_linear_speed'))
@@ -403,9 +425,6 @@ def update_simulator_configuration(config, xml_file):
 
     # Image background color
     set_rgba(observation, 'ObservationImageBackgroundColor', get_param(config, 'observation_image_background_color'))
-
-    # Enable grayscale
-    set_bool(observation, 'EnableGrayscale', get_param(config, 'enable_grayscale'))
 
     # Enable segmentation
     set_bool(observation, 'EnableSegmentation', get_param(config, 'enable_segmentation'))

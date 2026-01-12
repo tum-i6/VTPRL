@@ -91,8 +91,7 @@ def get_env(agent_dict, root_dict, sim_dict, gym_environment_dict, manipulator_e
         elif env_key == 'iiwa_sample_dart_unity_env': 
             env = IiwaSampleEnv(max_ts=gym_environment_dict['max_time_step'], orientation_control=d['orientation_control'],
                                 use_ik=d['use_inverse_kinematics'], ik_by_sns=d['linear_motion_conservation'],
-                                state_type=mg['state'], enable_render=d['enable_dart_viewer'],
-                                task_monitor=d['task_monitor'], with_objects=d['with_objects'],
+                                state_type=mg['state'], enable_render=d['enable_dart_viewer'], with_objects=d['with_objects'],
                                 target_mode=d['target_mode'], target_path=d['target_path'],
                                 goal_type=goal_dict['goal_type'], joints_safety_limit=d['joints_safety_limit'], 
                                 max_joint_vel=d['max_joint_vel'], max_ee_cart_vel=d['max_ee_cart_vel'], 
@@ -105,8 +104,7 @@ def get_env(agent_dict, root_dict, sim_dict, gym_environment_dict, manipulator_e
         elif env_key == 'iiwa_numerical_planar_grasping_dart_unity_env': 
             env = IiwaNumericalPlanarGraspingEnv(max_ts=gym_environment_dict['max_time_step'], orientation_control=d['orientation_control'],
                                 use_ik=d['use_inverse_kinematics'], ik_by_sns=d['linear_motion_conservation'],
-                                state_type=mg['state'], enable_render=d['enable_dart_viewer'],
-                                task_monitor=d['task_monitor'], with_objects=d['with_objects'],
+                                state_type=mg['state'], enable_render=d['enable_dart_viewer'], with_objects=d['with_objects'],
                                 target_mode=d['target_mode'], goal_type=goal_dict['goal_type'],
                                 randomBoxesGenerator=randomBoxesGenerator, joints_safety_limit=d['joints_safety_limit'],
                                 max_joint_vel=d['max_joint_vel'], max_ee_cart_vel=d['max_ee_cart_vel'],
@@ -125,7 +123,7 @@ def get_env(agent_dict, root_dict, sim_dict, gym_environment_dict, manipulator_e
             img_size = int(min(width, height))
             env = IiwaEndToEndPlanarGraspingEnv(max_ts=gym_environment_dict['max_time_step'], orientation_control=d['orientation_control'],
                                 use_ik=d['use_inverse_kinematics'], ik_by_sns=d['linear_motion_conservation'],
-                                state_type=mg['state'], enable_render=d['enable_dart_viewer'], task_monitor=d['task_monitor'],
+                                state_type=mg['state'], enable_render=d['enable_dart_viewer'],
                                 target_mode=d['target_mode'], goal_type=goal_dict['goal_type'],
                                 randomBoxesGenerator=randomBoxesGenerator, joints_safety_limit=d['joints_safety_limit'],
                                 max_joint_vel=d['max_joint_vel'], max_ee_cart_vel=d['max_ee_cart_vel'],
@@ -141,8 +139,7 @@ def get_env(agent_dict, root_dict, sim_dict, gym_environment_dict, manipulator_e
         elif env_key == 'iiwa_ruckig_planar_grasping_dart_unity_env': 
             env = IiwaRuckigPlanarGraspingEnv(max_ts=gym_environment_dict['max_time_step'], orientation_control=d['orientation_control'],
                                 use_ik=d['use_inverse_kinematics'], ik_by_sns=d['linear_motion_conservation'],
-                                state_type=mg['state'], enable_render=d['enable_dart_viewer'],
-                                task_monitor=d['task_monitor'], with_objects=d['with_objects'],
+                                state_type=mg['state'], enable_render=d['enable_dart_viewer'], with_objects=d['with_objects'],
                                 target_mode=d['target_mode'], goal_type=goal_dict['goal_type'],
                                 randomBoxesGenerator=randomBoxesGenerator, joints_safety_limit=d['joints_safety_limit'],
                                 max_joint_vel=d['max_joint_vel'], max_ee_cart_vel=d['max_ee_cart_vel'],
@@ -161,7 +158,17 @@ def get_env(agent_dict, root_dict, sim_dict, gym_environment_dict, manipulator_e
 
     num_envs = gym_environment_dict['num_envs']
     env = [create_env for i in range(num_envs)]
-    env = SimulatorVecEnv(env, agent_dict, root_dict, sim_dict, gym_environment_dict, manipulator_environment_dict, reward_dict, manual_actions_dict) # Set vectorized env
+    env = SimulatorVecEnv(
+        env,
+        agent_dict,
+        root_dict,
+        sim_dict,
+        gym_environment_dict,
+        manipulator_environment_dict,
+        reward_dict,
+        manual_actions_dict=manual_actions_dict,
+        observation_dict=observation_dict,
+    ) # Set vectorized env
     env = VecMonitor(env, log_dir, info_keywords=("success",))                # Monitor envs 
 
     return env

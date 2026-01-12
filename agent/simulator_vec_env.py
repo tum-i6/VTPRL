@@ -5,21 +5,24 @@ iiwa environment in order to make it possible to communicate with unity and trai
 interface in SB3
 """
 import ast
-import base64
 import json
 import time
-
-import subprocess
-from subprocess import PIPE
 import roslibpy
 import zmq
 import grpc
 
 import numpy as np
 from stable_baselines3.common.vec_env import DummyVecEnv
+from typing import Dict, Optional, List
 
 from utils import service_pb2_grpc
 from utils.service_pb2 import StepRequest
+from utils.task_monitor import (
+    build_monitor_spec,
+    collect_monitor_data,
+    MonitorSpec,
+)
+from utils.task_monitor_proxy import TaskMonitorController
 
 try:
     from utils_advanced.manual_actions import configure_manual_settings_and_get_manual_function
@@ -28,18 +31,52 @@ except:
 
 class CommandModel:
 
+    """Lightweight command envelope for gRPC/ZMQ/ROS requests."""
+
     def __init__(self, id, command, env_key, value):
+        """Create a command payload.
+
+        Args:
+            id (int): Environment identifier.
+            command (str): Command verb, e.g., "ACTION" or "RESET".
+            env_key (str): Environment label understood by Unity.
+            value (Any): Command payload (action list or reset string).
+        """
         self.id = id
         self.environment = env_key
         self.command = command
         self.value = value
 
 class SimulatorVecEnv(DummyVecEnv):
+    """Vectorized Unity bridge used by SB3-compatible agents."""
     _client = None
 
-    def __init__(self, env_fns, agent_dict, root_dict, simulation_dict, gym_environment_dict, manipulator_environment_dict, reward_dict, manual_actions_dict=None, spaces=None):
-        """
-        envs: list of environments to create
+    def __init__(
+        self,
+        env_fns,
+        agent_dict,
+        root_dict,
+        simulation_dict,
+        gym_environment_dict,
+        manipulator_environment_dict,
+        reward_dict,
+        manual_actions_dict=None,
+        observation_dict=None,
+        spaces=None,
+    ):
+        """Instantiate the vectorized Unity environment wrapper.
+
+        Args:
+            env_fns (List[callable]): Factories producing single-env instances.
+            agent_dict (dict): Agent-level configuration.
+            root_dict (dict): Root configuration (global/environment mode).
+            simulation_dict (dict): Communication/simulator configuration.
+            gym_environment_dict (dict): Gym-specific configuration.
+            manipulator_environment_dict (dict): Manipulator-specific config.
+            reward_dict (dict): Reward configuration.
+            manual_actions_dict (dict, optional): Manual action configuration.
+            observation_dict (dict, optional): Observation configuration.
+            spaces (gym.Space, optional): Optional space override.
         """
         DummyVecEnv.__init__(self, env_fns)
         # self.env_process = subprocess.Popen(
@@ -55,6 +92,7 @@ class SimulatorVecEnv(DummyVecEnv):
         self.sim = simulation_dict
         self.gym = gym_environment_dict
         self.manip_env = manipulator_environment_dict
+        self.observation_cfg = observation_dict or {}
         self.reward_dict = reward_dict
         self.communication_type = self.sim['communication_type']
         self.port_number = self.sim['port_number']
@@ -68,6 +106,11 @@ class SimulatorVecEnv(DummyVecEnv):
         self.envs = self.train_envs
         print("Number of envs: " + str(len(self.envs)))
         #self.envs = [env_fn(id=ID) for env_fn, ID in zip(env_fns, [x for x in range(self.nenvs)])]
+
+        # Centralized task monitor controller (single Qt window)
+        self.task_monitor: Optional[TaskMonitorController] = None
+        self._task_monitor_specs: Dict[int, MonitorSpec] = {}
+        self._task_monitor_enabled = bool(self.gym.get('task_monitor', False))
 
         # Initial position flag for the manipulator/robot after reseting. 1 means different than the default vertical position #
         manip_gym = self.gym.get('manipulator_gym_environment', {})
@@ -126,20 +169,35 @@ class SimulatorVecEnv(DummyVecEnv):
             print("The robot has no tool attached to the end-effector")
         else:
             print(f"End-effector enabled: {self.ee_model}")
+        
 
     def switch_to_training(self):
+        """Route operations to the training environment list.
+
+        Returns:
+            None
+        """
         self.envs = self.train_envs
 
     def switch_to_validation(self):
+        """Route operations to the validation environment list.
+
+        Returns:
+            None
+        """
         self.envs = self.validation_envs
 
     def step(self, actions, dart_convert=True):
         """
-           :param actions: list[list[float]]] list of lists. Each sublist entails actions that will be transfered to each corresponding env.
-                           These actions originate either from a model-based controller or from the output of a Neural Network of a RL model
+        Advance all Unity environments one step.
 
-           :param dart_convert: bool, if set to True it means the actions are in task-space and must be converted with IK to the joint space. 
-                                      The UNITY simulator always expects velocities in joint space.
+        Args:
+            actions (List[List[float]]): Per-env actions. Each sublist entails actions that will be transfered to each corresponding env. 
+                These actions originate either from a model-based controller or from the output of a neural network of an RL model.
+            dart_convert (bool): If True, convert task-space actions to joint space via IK. The UNITY simulator always expects velocities in joint space.
+
+        Returns:
+            tuple: observations, rewards, dones, infos stacked across envs.
         """
 
         self.current_step += 1
@@ -205,15 +263,36 @@ class SimulatorVecEnv(DummyVecEnv):
             if(self.flag_zero_initial_positions == 1):
                 observations_converted = self._send_zero_vel_and_update(self.envs, True)
 
+        # Cache rewards for monitor panels and push latest telemetry
+        for env, reward in zip(self.envs, rews):
+            try:
+                env._last_reward = float(reward)
+            except Exception:
+                env._last_reward = reward
+
+        self._refresh_task_monitor()
+
         return np.stack(observations_converted), np.stack(rews), np.stack(dones), infos
 
     def step_wait(self):
+        """Execute deferred actions (SB3 compatibility).
+
+        Returns:
+            tuple: observations, rewards, dones, infos stacked across envs.
+        """
         # only because VecFrameStack uses step_async to provide the actions, then step_wait to execute a step
         return self.step(self.actions)
 
     def _create_request(self, command, environments, actions=None):
-        """
-            Create request to send to the UNITY simulator
+        """Create a serialized request for Unity.
+
+        Args:
+            command (str): "ACTION" or "RESET".
+            environments (List): Target environments.
+            actions (List, optional): Per-env actions for ACTION requests.
+
+        Returns:
+            str: Serialized JSON array payload for Unity.
         """
         content = ''
         env_label = "manipulator_environment"
@@ -243,6 +322,14 @@ class SimulatorVecEnv(DummyVecEnv):
         return '[' + content + ']'
 
     def _send_request(self, content):
+        """Dispatch the serialized request over the configured transport.
+
+        Args:
+            content (str): Serialized JSON payload destined for Unity.
+
+        Returns:
+            Any: Parsed Unity response (list/dict) depending on transport.
+        """
 
         # "{\"Environment\":\"manipulator\",\"Action\":\"" + translated_action + "\"}"
         if self.communication_type == 'ROS':
@@ -253,16 +340,35 @@ class SimulatorVecEnv(DummyVecEnv):
             response = self.socket.recv()
             return self._parse_result(response)
         else:
-            # gRPC path with timeout and error handling
+            timeout_seconds = self.sim.get('grpc_timeout_seconds', None)
+            call_kwargs = {}
+            if timeout_seconds not in (None, 0):
+                call_kwargs['timeout'] = timeout_seconds
             try:
-                reply = self.stub.step(StepRequest(data=content), timeout=5.0)
+                reply = self.stub.step(StepRequest(data=content), **call_kwargs)
             except grpc.RpcError as e:
                 code = e.code() if hasattr(e, 'code') else None
                 details = e.details() if hasattr(e, 'details') else str(e)
-                raise RuntimeError(f"gRPC step failed (code={code}): {details}. Check that the Unity server is running at {self.ip_address}:{self.port_number} and reachable.") from e
+                if timeout_seconds not in (None, 0) and code == grpc.StatusCode.DEADLINE_EXCEEDED:
+                    raise RuntimeError(
+                        f"gRPC step timed out after {timeout_seconds} seconds. "
+                        f"Verify that the Unity server at {self.ip_address}:{self.port_number} is running and unpaused."
+                    ) from e
+                raise RuntimeError(
+                    f"gRPC step failed (code={code}): {details}. "
+                    f"Check that the Unity server is running at {self.ip_address}:{self.port_number} and reachable."
+                ) from e
             return self._parse_result(reply.data)
 
     def _parse_result(self, result):
+        """Parse Unity response (supports JSON or Python-literal formats).
+
+        Args:
+            result (Any): Raw response from transport (string/bytes/object).
+
+        Returns:
+            Any: Parsed Python object (usually list of per-env observations).
+        """
         if self.communication_type == 'ROS':
             data = result['value']
             try:
@@ -283,6 +389,14 @@ class SimulatorVecEnv(DummyVecEnv):
                 return json.loads(data)
 
     def reset(self, should_reset=True):
+        """Reset all environments locally and in Unity.
+
+        Args:
+            should_reset (bool): Whether to call the local env reset before Unity reset.
+
+        Returns:
+            np.ndarray: Initial observations after reset.
+        """
         if should_reset:
             [env.reset() for env in self.envs]
 
@@ -292,19 +406,25 @@ class SimulatorVecEnv(DummyVecEnv):
         # Correct dart chain #
         observations_converted = self._send_zero_vel_and_update(self.envs, True)
 
+        for env in self.envs:
+            env._last_reward = 0.0
+
+        self._refresh_task_monitor()
+
         return np.array(observations_converted)
 
     ###########
     # Helpers #
     ###########
     def _send_reset_and_update(self, envs, time_step_update=True):
-        """
-            send a reset JSON command and update the envs (time steps, observations, dart chains)
+        """Send RESET to Unity and update local envs.
 
-            :param envs: envs
-            :param time_step_update: whether to update the timestep of the agents
+        Args:
+            envs (List): Environments to reset.
+            time_step_update (bool): Whether to advance local timesteps.
 
-            :return: obs_converted
+        Returns:
+            list: Converted observations for the provided envs.
         """
 
         # UNITY #
@@ -317,33 +437,35 @@ class SimulatorVecEnv(DummyVecEnv):
         return observations_converted
 
     def _send_actions_and_update(self, actions):
-        """
-            send actions to the UNITY envs and update the agents envs with the returned observations (time steps, observations, dart chains)
-            Note: send zero velocities to collided envs
+        """Send ACTIONs to Unity and update local envs with returned observations.
+        Note: zero velocities are sent for collided envs.
 
-            :param actions: agent actions (UNITY format) for each env to be send to UNITY simulator
+        Args:
+            actions (List[List[float]]): Per-env actions in Unity format.
 
-            :return: terminated_environments, rews, infos, obs_converted, dones 
+        Returns:
+            tuple: (terminated_envs, rewards, infos, observations, dones).
+                terminated_envs (list): Envs that finished this step.
+                rewards (list): Per-env reward scalars.
+                infos (list): Per-env info dictionaries.
+                observations (list): Per-env observations converted to agent format.
+                dones (list): Per-env done flags.
         """
 
         rews = [0] * len(self.envs)
 
-        env_key = str(self.gym.get('env_key', ''))
-        if (env_key.find("iiwa") != -1):
-            has_gripper = self.ee_enabled and self.ee_model in ('ROBOTIQ_2F85', 'ROBOTIQ_3F', 'DEFAULT_GRIPPER')
-            if(env_key == 'iiwa_joint_vel'):
-                action_dim = int(self.gym.get('num_joints', 7)) + (1 if has_gripper else 0)
-            else:
-                action_dim = 8 if has_gripper else 7
-        elif (env_key.find("so100") != -1):
-            action_dim = 6
-        elif (env_key.find("warehouse") != -1):
-            action_dim = 2
+        action_dim = self._action_dim()
 
         # For collided envs send zero velocities #
         for env in self.envs:
             if env.collided_env == 1:
                 actions[env.id] = np.zeros(action_dim)
+
+        for env, action in zip(self.envs, actions):
+            try:
+                env._monitor_last_action = np.asarray(action, dtype=float)
+            except Exception:
+                env._monitor_last_action = action
 
         #print("current step:" + str(self.current_step))
         # create request containing all environments with the actions to be executed
@@ -370,29 +492,18 @@ class SimulatorVecEnv(DummyVecEnv):
         return terminated_environments, rews, infos, observations_converted, dones
 
     def _send_zero_vel_and_update(self, envs, time_step_update=True):
-        """
-            send zero velocities to all UNITY envs and update the agent envs
+        """Send zero velocities to Unity, then update local envs.
+        This corrects the articulation chain when robots reset to non-default poses.
 
-            Note: this function is needed to be called when the manipulator resets to different initial joints
-                  positions than the vertical default position. It corrects the dart chain of the envs due to UNITY synchronization
+        Args:
+            envs (List): Target environments.
+            time_step_update (bool): Whether to advance local timesteps.
 
-            :param envs: envs
-            :param time_step_update: whether to update the timestep of the agents
-
-            :return: obs_converted
+        Returns:
+            list: Converted observations.
         """
         # Send zero velocities to the UNITY envs  #
-        env_key = str(self.gym.get('env_key', ''))
-        if (env_key.find("iiwa") != -1):
-            has_gripper = self.ee_enabled and self.ee_model in ('ROBOTIQ_2F85', 'ROBOTIQ_3F', 'DEFAULT_GRIPPER')
-            if(env_key == 'iiwa_joint_vel'):
-                action_dim = int(self.gym.get('num_joints', 7)) + (1 if has_gripper else 0)
-            else:
-                action_dim = 8 if has_gripper else 7
-        elif (env_key.find("so100") != -1):
-            action_dim = 6
-        elif (env_key.find("warehouse") != -1):
-            action_dim = 2
+        action_dim = self._action_dim()
 
         actions = np.zeros((len(envs), action_dim))
         request = self._create_request("ACTION", envs, actions)
@@ -404,13 +515,14 @@ class SimulatorVecEnv(DummyVecEnv):
         return observations_converted
 
     def _update_envs(self, observations, time_step_update):
-        """
-            update the agent envs (dart chain, time_step etc.) given the new UNITY observations
- 
-            :param observations: UNITY format
-            :param time_step_update: whether to update the timestep of the agents
+        """Update local envs using Unity observations.
 
-            :return: terminated_environments, rews, infos, obs_converted, dones 
+        Args:
+            observations (Iterable): Raw Unity observations (may be strings or dicts).
+            time_step_update (bool): Whether to advance local timesteps.
+
+        Returns:
+            list: Transposed env stack [observations, rewards, dones, infos].
         """
         env_stack = []
         for obs, env in zip(observations, self.envs):
@@ -428,14 +540,95 @@ class SimulatorVecEnv(DummyVecEnv):
 
         return [list(param) for param in zip(*env_stack)]
 
+    def _ensure_task_monitor_initialized(self):
+        """Initialize the task monitor controller on first use.
+
+        Returns:
+            None
+        """
+        if not self._task_monitor_enabled or self.task_monitor is not None:
+            return
+
+        controller: Optional[TaskMonitorController] = None
+        try:
+            controller = TaskMonitorController()
+            specs: Dict[int, MonitorSpec] = {}
+            for env in self.envs:
+                spec = build_monitor_spec(env, self.observation_cfg)
+                if spec is None:
+                    continue
+                if controller.register_environment(spec):
+                    specs[env.id] = spec
+
+            if not specs:
+                controller.close()
+                self._task_monitor_enabled = False
+                return
+
+            self.task_monitor = controller
+            self._task_monitor_specs = specs
+        except Exception as exc:
+            print(f"Task monitor initialization failed: {exc}")
+            if controller is not None:
+                try:
+                    controller.close()
+                except Exception:
+                    pass
+            self.task_monitor = None
+            self._task_monitor_specs = {}
+            self._task_monitor_enabled = False
+
+    def _refresh_task_monitor(self):
+        """Push latest telemetry to the task monitor UI.
+
+        Returns:
+            None
+        """
+        if not self._task_monitor_enabled:
+            return
+
+        self._ensure_task_monitor_initialized()
+
+        if not self.task_monitor:
+            return
+
+        for env in self.envs:
+            if env.id not in self._task_monitor_specs:
+                continue
+            data = collect_monitor_data(env)
+            if data is None:
+                continue
+            try:
+                self.task_monitor.update_environment(env.id, data)
+            except Exception as exc:
+                print(f"Task monitor update failed for env {env.id}: {exc}")
+                try:
+                    self.task_monitor.close()
+                except Exception:
+                    pass
+                self.task_monitor = None
+                self._task_monitor_specs.clear()
+                self._task_monitor_enabled = False
+                break
+
     ###############
     # End helpers #
     ###############
 
     def reset_task(self):
+        """Placeholder to satisfy VecEnv API; no-op here.
+
+        Returns:
+            None
+        """
         pass
 
     def close(self):
+        """Close transports and task monitor resources.
+
+        Returns:
+            None
+        """
         # Cleanly close the underlying transport if applicable
         try:
             if self.communication_type == 'ROS' and SimulatorVecEnv._client is not None:
@@ -448,22 +641,58 @@ class SimulatorVecEnv(DummyVecEnv):
             elif self.communication_type == 'GRPC':
                 if hasattr(self, 'channel') and self.channel is not None:
                     self.channel.close()
+            if self.task_monitor:
+                try:
+                    self.task_monitor.close()
+                finally:
+                    self.task_monitor = None
+                    self._task_monitor_specs.clear()
+                    self._task_monitor_enabled = False
         except Exception:
             # Swallow close-time exceptions to avoid masking teardown
             pass
 
     def __len__(self):
+        """Number of vectorized environments.
+
+        Returns:
+            int: Count of managed environments.
+        """
         return self.nenvs
 
     def render(self, mode=None):
         """
-            Override default vectorized render behaviour. SB3 renders all envs into a single window. This behaviour is
-            incompatible with our task_monitor.py implementation. Instead render each env into separate windows
+            Override default vectorized render behaviour.
+            SB3 renders all envs into a single window; instead render each env into separate windows.
+
+            Args:
+                mode (Any): Unused; kept for API compatibility.
+
+            Returns:
+                None
         """
         if(self.gym.get("env_key") != 'iiwa_joint_vel'):
             for env in self.envs:
                 if hasattr(env, 'dart_sim') and getattr(env.dart_sim, 'enable_viewer', False): # Render is active
                     env.render()
+
+    def _action_dim(self) -> int:
+        """Compute action dimension based on env key and EE config.
+
+        Returns:
+            int: Dimension of the action vector expected by Unity.
+        """
+        env_key = str(self.gym.get('env_key', ''))
+        if "iiwa" in env_key:
+            has_gripper = self.ee_enabled and self.ee_model in ('ROBOTIQ_2F85', 'ROBOTIQ_3F', 'DEFAULT_GRIPPER')
+            if env_key == 'iiwa_joint_vel':
+                return int(self.gym.get('num_joints', 7)) + (1 if has_gripper else 0)
+            return 8 if has_gripper else 7
+        if "so100" in env_key:
+            return 6
+        if "warehouse" in env_key:
+            return 2
+        return 0
 
     # Calling destructor
     # def __del__(self):
