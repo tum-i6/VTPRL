@@ -74,7 +74,9 @@ class WarehouseUnityEnv(gym.Env):
         # NavMesh dynamics: recompute/rasterize every step only when dynamic obstacles carve the mesh
         dyn_cfg = self.warehouse_config.get('dynamic_obstacles') if isinstance(self.warehouse_config, dict) else {}
         dyn_count = dyn_cfg.get('dynamic_obstacle_count', dyn_cfg.get('DynamicObstacleCount', 0)) if isinstance(dyn_cfg, dict) else 0
-        self.has_dynamic_obstacles = bool(self.warehouse_config.get('enable_obstacle_manager', False) and int(dyn_count) > 0)
+        enable_obstacle_mgr = self.warehouse_config['enable_obstacle_manager']
+        self.enable_transport = self.warehouse_config['enable_transport']
+        self.has_dynamic_obstacles = bool((enable_obstacle_mgr and int(dyn_count)) > 0 or self.enable_transport)
 
         # DWA configuration (all supplied by config.py)
         self.dwa_freq = float(self.config['dwa_freq'])
@@ -200,17 +202,18 @@ class WarehouseUnityEnv(gym.Env):
             object_pose_ros = list(self.config['object_pose'])
             robot_pose_ros = list(self.config['robot_pose'])
 
-        obstacle_size = [1.0, 1.0, 1.0]
-        static_pool = self.warehouse_config.get('static_obstacles') if isinstance(self.warehouse_config, dict) else None
-        if isinstance(static_pool, (list, tuple)) and static_pool:
-            candidate_size = static_pool[0].get('obstacle_size') if isinstance(static_pool[0], dict) else None
+        object_size = [1.0, 1.0, 1.0]
+        items_pool = self.warehouse_config.get('items') if isinstance(self.warehouse_config, dict) else None
+        if isinstance(items_pool, (list, tuple)) and items_pool:
+            candidate_size = items_pool[0].get('item_size') if isinstance(items_pool[0], dict) else None
             if candidate_size is not None and len(candidate_size) >= 2:
-                obstacle_size = candidate_size
-        obstacle_height = 0.005 + 0.5 * float(obstacle_size[1]) if len(obstacle_size) >= 2 else 0.505
+                object_size = candidate_size
+        object_height = 0.5 * float(object_size[1]) if len(object_size) >= 2 else 0.5
+        ground_surface = 0.5 * self.warehouse_config['ground']['ground_size'][1]
 
-        target_pose_unity = self._ros_planar_pose_to_unity(target_pose_ros, height=0.05)
-        object_pose_unity = self._ros_planar_pose_to_unity(object_pose_ros, height=obstacle_height)
-        robot_pose_unity = self._ros_planar_pose_to_unity(robot_pose_ros, height=0.0)
+        target_pose_unity = self._ros_planar_pose_to_unity(target_pose_ros, height=ground_surface)
+        object_pose_unity = self._ros_planar_pose_to_unity(object_pose_ros, height=ground_surface+object_height)
+        robot_pose_unity = self._ros_planar_pose_to_unity(robot_pose_ros, height=ground_surface)
 
         self.reset_state = [
             *active_joints,

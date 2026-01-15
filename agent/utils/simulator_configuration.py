@@ -132,45 +132,53 @@ def set_float_array(parent, tag, values):
     if changed:
         node.set('updated', 'yes')
 
-def get_param(config, key):
+def get_root_param(config, key):
+    """Return a root-level parameter."""
     root = getattr(config, 'root_dict', None)
+    if isinstance(root, dict):
+        if key in root:
+            return root.get(key)
+    return None
+
+def get_sim_param(config, key):
+    """Return a simulation-level parameter from its proper scope."""
     sim = getattr(config, 'simulation_dict', None)
+    if isinstance(sim, dict):
+        if key in sim:
+            return sim.get(key)
+    return None
+
+def get_manip_param(config, key):
+    """Return a manipulator-environment parameter from its proper scope."""
     manip = getattr(config, 'manipulator_environment_dict', None)
-    ware = getattr(config, 'warehouse_environment_dict', None)
-    obs = getattr(config, 'observation_dict', None)
-
-    # Primary scopes
-    scopes = (root, sim, manip, ware, obs)
-    for scope in scopes:
-        if isinstance(scope, dict) and key in scope:
-            return scope.get(key)
-
-    # Nested section scopes in finalized config.py
     if isinstance(manip, dict):
-        floor_sub = manip.get('floor') if isinstance(manip.get('floor'), dict) else None
-        if floor_sub and key in floor_sub:
-            return floor_sub.get(key)
+        if key in manip:
+            return manip.get(key)
+        floor = manip.get('floor') if isinstance(manip.get('floor'), dict) else None
+        if floor and key in floor:
+            return floor.get(key)
+    return None
 
+def get_warehouse_param(config, key):
+    """Return a warehouse-environment parameter from its proper scope."""
+    ware = getattr(config, 'warehouse_environment_dict', None)
     if isinstance(ware, dict):
-        ground_sub = ware.get('ground') if isinstance(ware.get('ground'), dict) else None
-        if ground_sub and key in ground_sub:
-            return ground_sub.get(key)
+        if key in ware:
+            return ware.get(key)
+        ground = ware.get('ground') if isinstance(ware.get('ground'), dict) else None
+        if ground and key in ground:
+            return ground.get(key)
+    return None
 
-        items_sub = ware.get('items') if isinstance(ware.get('items'), list) else None
-        if items_sub:
-            for item in items_sub:
-                if isinstance(item, dict) and key in item:
-                    return item.get(key)
-
-        dyn_sub = ware.get('dynamic_obstacles') if isinstance(ware.get('dynamic_obstacles'), dict) else None
-        if dyn_sub and key in dyn_sub:
-            return dyn_sub.get(key)
-
+def get_observation_param(config, key):
+    """Return an observation parameter from its proper scope."""
+    obs = getattr(config, 'observation_dict', None)
     if isinstance(obs, dict):
-        laser_sub = obs.get('laser_scan') if isinstance(obs.get('laser_scan'), dict) else None
-        if laser_sub and key in laser_sub:
-            return laser_sub.get(key)
-
+        if key in obs:
+            return obs.get(key)
+        laser = obs.get('laser_scan') if isinstance(obs.get('laser_scan'), dict) else None
+        if laser and key in laser:
+            return laser.get(key)
     return None
 
 def ensure_children(parent, child_tag, desired_count):
@@ -234,63 +242,63 @@ def update_simulator_configuration(config, xml_file):
     simulation = root.find('Simulation')
 
     # Communication and networking
-    set_enum(simulation, 'CommunicationType', get_param(config, 'communication_type'), {'GRPC','GRPC_NRP','ROS','ZMQ'})
-    ip_address = get_param(config, 'ip_address')
+    set_enum(simulation, 'CommunicationType', get_sim_param(config, 'communication_type'), {'GRPC','GRPC_NRP','ROS','ZMQ'})
+    ip_address = get_sim_param(config, 'ip_address')
     if ip_address in ['localhost', 'host.docker.internal']:
         ip_address = '127.0.0.1'
     set_text(simulation, 'IPAddress', ip_address)
-    set_text(simulation, 'PortNumber', get_param(config, 'port_number'))
+    set_text(simulation, 'PortNumber', get_sim_param(config, 'port_number'))
 
     # Time steps
-    set_text(simulation, 'TimestepDurationInSeconds', get_param(config, 'timestep_duration_in_seconds'))
-    set_text(simulation, 'PhysicsSimulationIncrementInSeconds', get_param(config, 'physics_simulation_increment_in_seconds'))
+    set_text(simulation, 'TimestepDurationInSeconds', get_sim_param(config, 'timestep_duration_in_seconds'))
+    set_text(simulation, 'PhysicsSimulationIncrementInSeconds', get_sim_param(config, 'physics_simulation_increment_in_seconds'))
 
     # Simulation flags and seed
-    set_bool(simulation, 'ImprovedPatchFriction', get_param(config, 'improved_patch_friction'))
-    set_text(simulation, 'RandomSeed', get_param(config, 'random_seed'))
-    set_bool(simulation, 'Evaluation', get_param(config, 'evaluation'))
+    set_bool(simulation, 'ImprovedPatchFriction', get_sim_param(config, 'improved_patch_friction'))
+    set_text(simulation, 'RandomSeed', get_sim_param(config, 'random_seed'))
+    set_bool(simulation, 'Evaluation', get_sim_param(config, 'evaluation'))
 
     # Physics randomization
-    set_bool(simulation, 'RandomizeEnvironmentPhysics', get_param(config, 'randomize_environment_physics'))
-    set_bool(simulation, 'RandomizeTorque', get_param(config, 'randomize_torque'))
+    set_bool(simulation, 'RandomizeEnvironmentPhysics', get_sim_param(config, 'randomize_environment_physics'))
+    set_bool(simulation, 'RandomizeTorque', get_sim_param(config, 'randomize_torque'))
 
     # Persist/replay episode manifests
-    set_bool(simulation, 'PersistEpisodeManifests', get_param(config, 'persist_episode_manifests'))
-    set_bool(simulation, 'ReplayEpisodeManifest', get_param(config, 'replay_episode_manifest'))
-    set_text(simulation, 'ReplayManifestPath', get_param(config, 'replay_manifest_path'))
+    set_bool(simulation, 'PersistEpisodeManifests', get_sim_param(config, 'persist_episode_manifests'))
+    set_bool(simulation, 'ReplayEpisodeManifest', get_sim_param(config, 'replay_episode_manifest'))
+    set_text(simulation, 'ReplayManifestPath', get_sim_param(config, 'replay_manifest_path'))
 
     # Environment Mode
-    set_enum(root, 'EnvironmentMode', get_param(config, 'environment_mode'), {'Manipulator','Warehouse'})
+    set_enum(root, 'EnvironmentMode', get_root_param(config, 'environment_mode'), {'Manipulator','Warehouse'})
 
     # Manipulator Environment #
     manipulator_env = root.find('ManipulatorEnvironment')
 
     # Manipulator Model
-    set_enum(manipulator_env, 'ManipulatorModel', get_param(config, 'manipulator_model'), {'IIWA14','SO100'})
+    set_enum(manipulator_env, 'ManipulatorModel', get_manip_param(config, 'manipulator_model'), {'IIWA14','SO100'})
 
     # End effector
-    set_bool(manipulator_env, 'EnableEndEffector', get_param(config, 'enable_end_effector'))
-    set_enum(manipulator_env, 'EndEffectorModel', get_param(config, 'end_effector_model'), {'ROBOTIQ_3F','ROBOTIQ_2F85','CALIBRATION_PIN'})
+    set_bool(manipulator_env, 'EnableEndEffector', get_manip_param(config, 'enable_end_effector'))
+    set_enum(manipulator_env, 'EndEffectorModel', get_manip_param(config, 'end_effector_model'), {'ROBOTIQ_3F','ROBOTIQ_2F85','CALIBRATION_PIN'})
 
     # Floor settings #
     floor = manipulator_env.find('Floor') if manipulator_env is not None else None
     # Floor type/material and visualization
-    ft_val = get_param(config, 'floor_type')
+    ft_val = get_manip_param(config, 'floor_type')
     set_enum(floor, 'FloorType', str(ft_val).upper() if ft_val is not None else None, {'CHECKERBOARD','WOOD','MONOCHROMATIC'})
-    set_vec3(floor, 'FloorSize', get_param(config, 'floor_size'))
-    fm_val = get_param(config, 'floor_material')
+    set_vec3(floor, 'FloorSize', get_manip_param(config, 'floor_size'))
+    fm_val = get_manip_param(config, 'floor_material')
     set_enum(floor, 'FloorMaterial', str(fm_val).upper() if fm_val is not None else None, {'HOMOGENEOUS','HETEROGENEOUS'})
-    set_bool(floor, 'VisualizeFloorMaterial', get_param(config, 'visualize_floor_material'))
-    set_rgba(floor, 'FloorMaterialColor', get_param(config, 'floor_material_color'))
-    set_float_array(floor, 'FloorMaterialGridX', get_param(config, 'floor_material_grid_x'))
-    set_float_array(floor, 'FloorMaterialGridY', get_param(config, 'floor_material_grid_y'))
-    set_float_array(floor, 'FloorMaterialGridZ', get_param(config, 'floor_material_grid_z'))
-    set_float_array(floor, 'FloorMaterialGridDynamicFriction', get_param(config, 'floor_material_grid_dynamic_friction'))
-    set_float_array(floor, 'FloorMaterialGridStaticFriction', get_param(config, 'floor_material_grid_static_friction'))
+    set_bool(floor, 'VisualizeFloorMaterial', get_manip_param(config, 'visualize_floor_material'))
+    set_rgba(floor, 'FloorMaterialColor', get_manip_param(config, 'floor_material_color'))
+    set_float_array(floor, 'FloorMaterialGridX', get_manip_param(config, 'floor_material_grid_x'))
+    set_float_array(floor, 'FloorMaterialGridY', get_manip_param(config, 'floor_material_grid_y'))
+    set_float_array(floor, 'FloorMaterialGridZ', get_manip_param(config, 'floor_material_grid_z'))
+    set_float_array(floor, 'FloorMaterialGridDynamicFriction', get_manip_param(config, 'floor_material_grid_dynamic_friction'))
+    set_float_array(floor, 'FloorMaterialGridStaticFriction', get_manip_param(config, 'floor_material_grid_static_friction'))
 
     # Items section (support arrays)
     items = manipulator_env.find('Items') if manipulator_env is not None else None
-    items_cfg_list = get_param(config, 'items')
+    items_cfg_list = get_manip_param(config, 'items')
     if isinstance(items_cfg_list, list) and len(items_cfg_list) > 0:
         item_nodes = ensure_children(items, 'ItemParameters', len(items_cfg_list))
         for i, item_node in enumerate(item_nodes):
@@ -321,35 +329,35 @@ def update_simulator_configuration(config, xml_file):
             set_text(item_node, 'ItemStaticFrictionRandomizationRange', ic.get('item_static_friction_randomization_range'))
 
     # Manipulator TrajectoryString (if provided)
-    set_text(manipulator_env, 'TrajectoryString', get_param(config, 'trajectory_string'))
+    set_text(manipulator_env, 'TrajectoryString', get_manip_param(config, 'trajectory_string'))
 
     # Warehouse Environment section
     warehouse_env = root.find('WarehouseEnvironment')
     # Top-level
-    set_enum(warehouse_env, 'AMRModel', get_param(config, 'amr_model'), {'SAFELOG_S2'})
-    set_bool(warehouse_env, 'EnableTransport', get_param(config, 'enable_transport'))
-    set_text(warehouse_env, 'MaxChassisLinearSpeed', get_param(config, 'max_chassis_linear_speed'))
-    set_text(warehouse_env, 'MaxChassisAngularSpeed', get_param(config, 'max_chassis_angular_speed'))
-    set_text(warehouse_env, 'WheelDriveForceLimit', get_param(config, 'wheel_drive_force_limit'))
-    set_text(warehouse_env, 'WheelDriveDamping', get_param(config, 'wheel_drive_damping'))
+    set_enum(warehouse_env, 'AMRModel', get_warehouse_param(config, 'amr_model'), {'SAFELOG_S2'})
+    set_bool(warehouse_env, 'EnableTransport', get_warehouse_param(config, 'enable_transport'))
+    set_text(warehouse_env, 'MaxChassisLinearSpeed', get_warehouse_param(config, 'max_chassis_linear_speed'))
+    set_text(warehouse_env, 'MaxChassisAngularSpeed', get_warehouse_param(config, 'max_chassis_angular_speed'))
+    set_text(warehouse_env, 'WheelDriveForceLimit', get_warehouse_param(config, 'wheel_drive_force_limit'))
+    set_text(warehouse_env, 'WheelDriveDamping', get_warehouse_param(config, 'wheel_drive_damping'))
 
     # Ground
     ground = warehouse_env.find('Ground') if warehouse_env is not None else None
-    set_enum(ground, 'GroundType', get_param(config, 'ground_type'), {'MONOCHROMATIC','TEXTURED','PREFAB'})
-    set_vec3(ground, 'GroundSize', get_param(config, 'ground_size'))
-    set_text(ground, 'WallHeight', get_param(config, 'wall_height'))
-    set_enum(ground, 'GroundMaterial', get_param(config, 'ground_material'), {'HOMOGENEOUS','HETEROGENEOUS'})
-    set_bool(ground, 'VisualizeGroundMaterial', get_param(config, 'visualize_ground_material'))
-    set_rgba(ground, 'GroundMaterialColor', get_param(config, 'ground_material_color'))
-    set_float_array(ground, 'GroundMaterialGridX', get_param(config, 'ground_material_grid_x'))
-    set_float_array(ground, 'GroundMaterialGridY', get_param(config, 'ground_material_grid_y'))
-    set_float_array(ground, 'GroundMaterialGridZ', get_param(config, 'ground_material_grid_z'))
-    set_float_array(ground, 'GroundMaterialGridDynamicFriction', get_param(config, 'ground_material_grid_dynamic_friction'))
-    set_float_array(ground, 'GroundMaterialGridStaticFriction', get_param(config, 'ground_material_grid_static_friction'))
+    set_enum(ground, 'GroundType', get_warehouse_param(config, 'ground_type'), {'MONOCHROMATIC','TEXTURED','PREFAB'})
+    set_vec3(ground, 'GroundSize', get_warehouse_param(config, 'ground_size'))
+    set_text(ground, 'WallHeight', get_warehouse_param(config, 'wall_height'))
+    set_enum(ground, 'GroundMaterial', get_warehouse_param(config, 'ground_material'), {'HOMOGENEOUS','HETEROGENEOUS'})
+    set_bool(ground, 'VisualizeGroundMaterial', get_warehouse_param(config, 'visualize_ground_material'))
+    set_rgba(ground, 'GroundMaterialColor', get_warehouse_param(config, 'ground_material_color'))
+    set_float_array(ground, 'GroundMaterialGridX', get_warehouse_param(config, 'ground_material_grid_x'))
+    set_float_array(ground, 'GroundMaterialGridY', get_warehouse_param(config, 'ground_material_grid_y'))
+    set_float_array(ground, 'GroundMaterialGridZ', get_warehouse_param(config, 'ground_material_grid_z'))
+    set_float_array(ground, 'GroundMaterialGridDynamicFriction', get_warehouse_param(config, 'ground_material_grid_dynamic_friction'))
+    set_float_array(ground, 'GroundMaterialGridStaticFriction', get_warehouse_param(config, 'ground_material_grid_static_friction'))
 
     # Items (support arrays)
     warehouse_items = warehouse_env.find('Items') if warehouse_env is not None else None
-    warehouse_items_cfg = get_param(config, 'items')
+    warehouse_items_cfg = get_warehouse_param(config, 'items')
     if isinstance(warehouse_items_cfg, list) and len(warehouse_items_cfg) > 0:
         wi_nodes = ensure_children(warehouse_items, 'ItemParameters', len(warehouse_items_cfg))
         for i, item_node in enumerate(wi_nodes):
@@ -380,14 +388,14 @@ def update_simulator_configuration(config, xml_file):
             set_text(item_node, 'ItemStaticFrictionRandomizationRange', ic.get('item_static_friction_randomization_range'))
 
     # Obstacle manager
-    set_bool(warehouse_env, 'EnableObstacleManager', get_param(config, 'enable_obstacle_manager'))
-    set_text(warehouse_env, 'ObstaclePlacementSeparationMultiplier', get_param(config, 'obstacle_placement_separation_multiplier'))
-    set_text(warehouse_env, 'ObstacleSpawnBoundaryMargin', get_param(config, 'obstacle_spawn_boundary_margin'))
+    set_bool(warehouse_env, 'EnableObstacleManager', get_warehouse_param(config, 'enable_obstacle_manager'))
+    set_text(warehouse_env, 'ObstaclePlacementSeparationMultiplier', get_warehouse_param(config, 'obstacle_placement_separation_multiplier'))
+    set_text(warehouse_env, 'ObstacleSpawnBoundaryMargin', get_warehouse_param(config, 'obstacle_spawn_boundary_margin'))
 
     # Static obstacles (support arrays)
-    set_text(warehouse_env, 'StaticObstacleCount', get_param(config, 'static_obstacle_count'))
+    set_text(warehouse_env, 'StaticObstacleCount', get_warehouse_param(config, 'static_obstacle_count'))
     statics = warehouse_env.find('StaticObstacles') if warehouse_env is not None else None
-    static_list = get_param(config, 'static_obstacles')
+    static_list = get_warehouse_param(config, 'static_obstacles')
     if isinstance(static_list, list) and len(static_list) > 0:
         sop_nodes = ensure_children(statics, 'StaticObstacleParameters', len(static_list))
         for i, sop in enumerate(sop_nodes):
@@ -399,7 +407,7 @@ def update_simulator_configuration(config, xml_file):
 
     # Dynamic obstacles
     dyn = warehouse_env.find('DynamicObstacles') if warehouse_env is not None else None
-    dd = get_param(config, 'dynamic_obstacles') or {}
+    dd = get_warehouse_param(config, 'dynamic_obstacles') or {}
     set_text(dyn, 'DynamicObstacleCount', dd.get('dynamic_obstacle_count'))
     set_bool(dyn, 'DynamicObstacleObservability', dd.get('dynamic_obstacle_observability'))
     set_enum(dyn, 'DynamicObstacleMotion', dd.get('dynamic_obstacle_motion'), {'None','Random','Circle','Linear'})
@@ -416,28 +424,28 @@ def update_simulator_configuration(config, xml_file):
     observation = root.find('Observation')
     
     # Image settings
-    set_bool(observation, 'EnableObservationImage', get_param(config, 'enable_observation_image'))
-    set_bool(observation, 'SaveObservationImageAsFile', get_param(config, 'save_observation_image_as_file'))
-    set_enum(observation, 'ObservationImageEncoding', get_param(config, 'observation_image_encoding'), {'JPG','PNG'})
-    set_text(observation, 'ObservationImageQuality', get_param(config, 'observation_image_quality'))
-    set_text(observation, 'ObservationImageWidth', get_param(config, 'observation_image_width'))
-    set_text(observation, 'ObservationImageHeight', get_param(config, 'observation_image_height'))
+    set_bool(observation, 'EnableObservationImage', get_observation_param(config, 'enable_observation_image'))
+    set_bool(observation, 'SaveObservationImageAsFile', get_observation_param(config, 'save_observation_image_as_file'))
+    set_enum(observation, 'ObservationImageEncoding', get_observation_param(config, 'observation_image_encoding'), {'JPG','PNG'})
+    set_text(observation, 'ObservationImageQuality', get_observation_param(config, 'observation_image_quality'))
+    set_text(observation, 'ObservationImageWidth', get_observation_param(config, 'observation_image_width'))
+    set_text(observation, 'ObservationImageHeight', get_observation_param(config, 'observation_image_height'))
 
     # Image background color
-    set_rgba(observation, 'ObservationImageBackgroundColor', get_param(config, 'observation_image_background_color'))
+    set_rgba(observation, 'ObservationImageBackgroundColor', get_observation_param(config, 'observation_image_background_color'))
 
     # Enable segmentation
-    set_bool(observation, 'EnableSegmentation', get_param(config, 'enable_segmentation'))
+    set_bool(observation, 'EnableSegmentation', get_observation_param(config, 'enable_segmentation'))
 
     # Robot segmentation color
-    set_rgba(observation, 'RobotSegmentationColor', get_param(config, 'robot_segmentation_color'))
+    set_rgba(observation, 'RobotSegmentationColor', get_observation_param(config, 'robot_segmentation_color'))
 
-    set_bool(observation, 'EnableShadows', get_param(config, 'enable_shadows'))
-    set_enum(observation, 'ShadowType', get_param(config, 'shadow_type'), {'Soft','Hard','None'})
+    set_bool(observation, 'EnableShadows', get_observation_param(config, 'enable_shadows'))
+    set_enum(observation, 'ShadowType', get_observation_param(config, 'shadow_type'), {'Soft','Hard','None'})
 
     # Observation cameras (support arrays)
     cameras = observation.find('ObservationCameras') if observation is not None else None
-    cam_cfg_list = get_param(config, 'observation_cameras')
+    cam_cfg_list = get_observation_param(config, 'observation_cameras')
     if isinstance(cam_cfg_list, list) and len(cam_cfg_list) > 0:
         cam_nodes = ensure_children(cameras, 'CameraParameters', len(cam_cfg_list))
         for i, cam_node in enumerate(cam_nodes):
@@ -447,18 +455,18 @@ def update_simulator_configuration(config, xml_file):
             set_text(cam_node, 'CameraVerticalFOV', cam_cfg.get('camera_vertical_fov'))
 
     # Randomization settings
-    set_bool(observation, 'RandomizeAppearance', get_param(config, 'randomize_appearance'))
-    set_text(observation, 'CameraPositionRandomizationRangeInMeters', get_param(config, 'camera_position_randomization_range_in_meters'))
-    set_text(observation, 'CameraRotationRandomizationRangeInDegrees', get_param(config, 'camera_rotation_randomization_range_in_degrees'))
+    set_bool(observation, 'RandomizeAppearance', get_observation_param(config, 'randomize_appearance'))
+    set_text(observation, 'CameraPositionRandomizationRangeInMeters', get_observation_param(config, 'camera_position_randomization_range_in_meters'))
+    set_text(observation, 'CameraRotationRandomizationRangeInDegrees', get_observation_param(config, 'camera_rotation_randomization_range_in_degrees'))
 
     # Laser scan settings (Warehouse)
-    set_bool(observation, 'EnableLaserScan', get_param(config, 'enable_laser_scan'))
+    set_bool(observation, 'EnableLaserScan', get_observation_param(config, 'enable_laser_scan'))
     laser = observation.find('LaserScan') if observation is not None else None
-    set_text(laser, 'NumMeasurementsPerScan', get_param(config, 'num_measurements_per_scan'))
-    set_text(laser, 'RangeMetersMin', get_param(config, 'range_meters_min'))
-    set_text(laser, 'RangeMetersMax', get_param(config, 'range_meters_max'))
-    set_text(laser, 'ScanAngleStartDegrees', get_param(config, 'scan_angle_start_degrees'))
-    set_text(laser, 'ScanAngleEndDegrees', get_param(config, 'scan_angle_end_degrees'))
+    set_text(laser, 'NumMeasurementsPerScan', get_observation_param(config, 'num_measurements_per_scan'))
+    set_text(laser, 'RangeMetersMin', get_observation_param(config, 'range_meters_min'))
+    set_text(laser, 'RangeMetersMax', get_observation_param(config, 'range_meters_max'))
+    set_text(laser, 'ScanAngleStartDegrees', get_observation_param(config, 'scan_angle_start_degrees'))
+    set_text(laser, 'ScanAngleEndDegrees', get_observation_param(config, 'scan_angle_end_degrees'))
 
     try:
         # Write the updated .xml file

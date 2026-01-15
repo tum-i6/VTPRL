@@ -762,6 +762,7 @@ Warehouse: Ground and Obstacles
 - GroundSize: Sets NavMesh bake bounds and spawn area. Ensure sufficient Y thickness to avoid tunneling.
 - WallHeight: Creates low walls at edges; also used to clamp laser rays.
 - ObstaclePlacementSeparationMultiplier: Higher values reduce spawn retries and interpenetrations.
+- EnableTransport: When transport is disabled, items act as static obstacles with an enabled flag to detect collision with them. When transport is enabled, items act as objects for manipulation/transportation. Since they can be moved, they actively carve NavMesh to update occupancy grid maps. Furthermore, collision with them is considered normal and is not recorded.
 
 Dynamic Obstacles
 - Motion parameters (MaxLinearSpeed, MaxAngularSpeed) act as caps; controllers may command lower speeds.
