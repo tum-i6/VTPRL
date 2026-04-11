@@ -109,8 +109,8 @@ if __name__ == "__main__":
     if(goal_dict["goal_type"] == "box" and gym["env_key"].find("planar") != -1):
         randomBoxesGenerator = RandomBoxesGenerator(box_mode=goal_dict["box_mode"], box_samples=goal_dict["box_samples"], box_split=goal_dict["box_split"], box_save_val=goal_dict["box_save_val"], box_load_val=goal_dict["box_load_val"],
                                                     box_radius_val=goal_dict["box_radius_val"], box_min_distance_base=goal_dict["box_min_distance_base"],  box_max_distance_base=goal_dict["box_max_distance_base"], box_folder=goal_dict["box_folder"],
-                                                    box_x_min=goal_dict["box_x_min"], box_x_max=goal_dict["box_x_max"], box_x_active=goal_dict["box_x_active"], box_z_min=goal_dict["box_z_min"], box_z_max=goal_dict["box_z_max"],
-                                                    box_z_active=goal_dict["box_z_active"], box_ry_min=goal_dict["box_ry_min"], box_ry_max=goal_dict["box_ry_max"], box_ry_active=goal_dict["box_ry_active"], box_debug=goal_dict["box_debug"]
+                                                    box_x_min=goal_dict["box_x_min"], box_x_max=goal_dict["box_x_max"], box_x_active=goal_dict["box_x_active"], box_y_min=goal_dict["box_y_min"], box_y_max=goal_dict["box_y_max"],
+                                                    box_y_active=goal_dict["box_y_active"], box_rz_min=goal_dict["box_rz_min"], box_rz_max=goal_dict["box_rz_max"], box_rz_active=goal_dict["box_rz_active"], box_debug=goal_dict["box_debug"]
                                                     )
     else:
         randomBoxesGenerator = None

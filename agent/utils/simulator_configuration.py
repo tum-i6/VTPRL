@@ -7,6 +7,14 @@ import math
 # XML helper functions
 # ------------------------
 def _to_float(val):
+    """Convert a value to float when possible.
+
+    Args:
+        val: Candidate numeric/string value.
+
+    Returns:
+        Float value when conversion succeeds; otherwise ``None``.
+    """
     try:
         if isinstance(val, (int, float)):
             return float(val)
@@ -21,6 +29,15 @@ def _to_float(val):
     return None
 
 def _texts_equivalent(old_text, new_val):
+    """Compare XML text and candidate value with numeric-aware equivalence.
+
+    Args:
+        old_text: Existing XML text content.
+        new_val: Candidate replacement value.
+
+    Returns:
+        True when both values are considered equivalent, otherwise False.
+    """
     # Normalize None and empty-string handling
     if new_val is None:
         # Caller uses None to mean "no change"; treat as equivalent
@@ -43,6 +60,13 @@ def _texts_equivalent(old_text, new_val):
     return False
 
 def set_text(parent, tag, value):
+    """Set child text value when it differs from current XML content.
+
+    Args:
+        parent: Parent XML element.
+        tag: Child tag name to update.
+        value: New value to write.
+    """
     if parent is None or value is None:
         return
     elem = parent.find(tag)
@@ -54,9 +78,23 @@ def set_text(parent, tag, value):
         elem.set('updated', 'yes')
 
 def set_bool(parent, tag, value):
+    """Set a boolean child value as lowercase XML text.
+
+    Args:
+        parent: Parent XML element.
+        tag: Child tag name to update.
+        value: Boolean-like input.
+    """
     set_text(parent, tag, str(bool(value)).lower())
 
 def set_vec3(parent, tag, values):
+    """Update a nested ``x/y/z`` XML vector node.
+
+    Args:
+        parent: Parent XML element.
+        tag: Child vector tag containing ``x``, ``y``, ``z`` nodes.
+        values: Sequence with at least three values.
+    """
     if parent is None or values is None:
         return
     node = parent.find(tag)
@@ -74,6 +112,13 @@ def set_vec3(parent, tag, values):
         node.set('updated', 'yes')
 
 def set_rgba(parent, tag, rgba):
+    """Update a nested ``r/g/b/a`` XML color node.
+
+    Args:
+        parent: Parent XML element.
+        tag: Child color tag containing ``r``, ``g``, ``b``, ``a`` nodes.
+        rgba: Sequence with at least four values.
+    """
     if parent is None or rgba is None:
         return
     node = parent.find(tag)
@@ -91,6 +136,14 @@ def set_rgba(parent, tag, rgba):
         node.set('updated', 'yes')
 
 def set_enum(parent, tag, value, allowed_values):
+    """Set an XML enum-like field when value is valid.
+
+    Args:
+        parent: Parent XML element.
+        tag: Child tag name to update.
+        value: Candidate enum value.
+        allowed_values: Collection of allowed string values.
+    """
     if parent is None or value is None:
         return
     if allowed_values and value not in allowed_values:
@@ -99,6 +152,13 @@ def set_enum(parent, tag, value, allowed_values):
     set_text(parent, tag, value)
 
 def set_float_array(parent, tag, values):
+    """Synchronize a ``<float>`` array node with a Python sequence.
+
+    Args:
+        parent: Parent XML element.
+        tag: Child array tag containing ``<float>`` nodes.
+        values: Sequence of float-compatible values.
+    """
     if parent is None or not isinstance(values, (list, tuple)):
         return
     node = parent.find(tag)
@@ -133,7 +193,15 @@ def set_float_array(parent, tag, values):
         node.set('updated', 'yes')
 
 def get_root_param(config, key):
-    """Return a root-level parameter."""
+    """Return a root-level parameter.
+
+    Args:
+        config: Configuration object containing ``root_dict``.
+        key: Key to retrieve.
+
+    Returns:
+        Parameter value when available; otherwise ``None``.
+    """
     root = getattr(config, 'root_dict', None)
     if isinstance(root, dict):
         if key in root:
@@ -141,7 +209,15 @@ def get_root_param(config, key):
     return None
 
 def get_sim_param(config, key):
-    """Return a simulation-level parameter from its proper scope."""
+    """Return a simulation-level parameter from its proper scope.
+
+    Args:
+        config: Configuration object containing ``simulation_dict``.
+        key: Key to retrieve.
+
+    Returns:
+        Parameter value when available; otherwise ``None``.
+    """
     sim = getattr(config, 'simulation_dict', None)
     if isinstance(sim, dict):
         if key in sim:
@@ -149,7 +225,15 @@ def get_sim_param(config, key):
     return None
 
 def get_manip_param(config, key):
-    """Return a manipulator-environment parameter from its proper scope."""
+    """Return a manipulator-environment parameter from its proper scope.
+
+    Args:
+        config: Configuration object containing ``manipulator_environment_dict``.
+        key: Key to retrieve.
+
+    Returns:
+        Parameter value when available in manipulator scope; otherwise ``None``.
+    """
     manip = getattr(config, 'manipulator_environment_dict', None)
     if isinstance(manip, dict):
         if key in manip:
@@ -160,7 +244,15 @@ def get_manip_param(config, key):
     return None
 
 def get_warehouse_param(config, key):
-    """Return a warehouse-environment parameter from its proper scope."""
+    """Return a warehouse-environment parameter from its proper scope.
+
+    Args:
+        config: Configuration object containing ``warehouse_environment_dict``.
+        key: Key to retrieve.
+
+    Returns:
+        Parameter value when available in warehouse scope; otherwise ``None``.
+    """
     ware = getattr(config, 'warehouse_environment_dict', None)
     if isinstance(ware, dict):
         if key in ware:
@@ -171,7 +263,15 @@ def get_warehouse_param(config, key):
     return None
 
 def get_observation_param(config, key):
-    """Return an observation parameter from its proper scope."""
+    """Return an observation parameter from its proper scope.
+
+    Args:
+        config: Configuration object containing ``observation_dict``.
+        key: Key to retrieve.
+
+    Returns:
+        Parameter value when available in observation scope; otherwise ``None``.
+    """
     obs = getattr(config, 'observation_dict', None)
     if isinstance(obs, dict):
         if key in obs:
@@ -182,6 +282,16 @@ def get_observation_param(config, key):
     return None
 
 def ensure_children(parent, child_tag, desired_count):
+    """Ensure an XML parent contains exactly the requested number of children.
+
+    Args:
+        parent: Parent XML element.
+        child_tag: Child element tag to count/synchronize.
+        desired_count: Target number of children.
+
+    Returns:
+        List of synchronized child elements.
+    """
     if parent is None:
         return []
     try:
@@ -209,6 +319,11 @@ def ensure_children(parent, child_tag, desired_count):
     return existing
 
 def _clear_updated_flags(root_node):
+    """Remove transient ``updated`` markers from an XML tree.
+
+    Args:
+        root_node: Root XML element.
+    """
     if root_node is None:
         return
     for elem in root_node.iter():
@@ -219,15 +334,20 @@ def _clear_updated_flags(root_node):
                 pass
 
 def update_simulator_configuration(config, xml_file):
-    """
-        Update the UNITY simulator .xml file based on the settings that the user has been provided in a Config() type of class
+    """Update Unity's ``configuration.xml`` from a Python ``Config`` object.
 
-        Note: to change more options either adapt the UNITY simulator manually or extend this function, and the Config() class
+    Note:
+        To support additional XML fields, extend this function and the
+        corresponding ``Config`` dictionary sections.
 
-        :param config: configuration object
-        :param xml_file: path of the .xml file
+    Args:
+        config: Configuration object containing section dictionaries consumed by
+            this XML writer.
+        xml_file: Filesystem path of the target XML file.
 
-        :return: bool. Returns False when an error was encountered and the .xml file could not be updated properly
+    Returns:
+        ``True`` when the XML file was updated successfully, ``False`` if an
+        exception occurred and the previous XML content was restored.
     """
 
     tree = ET.parse(xml_file)
@@ -242,12 +362,21 @@ def update_simulator_configuration(config, xml_file):
     simulation = root.find('Simulation')
 
     # Communication and networking
-    set_enum(simulation, 'CommunicationType', get_sim_param(config, 'communication_type'), {'GRPC','GRPC_NRP','ROS','ZMQ'})
+    set_enum(simulation, 'CommunicationType', get_sim_param(config, 'communication_type'), {'GRPC','GRPC_NRP','GRPC_SHM','GRPC_BIN','ROS','ZMQ'})
     ip_address = get_sim_param(config, 'ip_address')
     if ip_address in ['localhost', 'host.docker.internal']:
         ip_address = '127.0.0.1'
     set_text(simulation, 'IPAddress', ip_address)
     set_text(simulation, 'PortNumber', get_sim_param(config, 'port_number'))
+
+    # Shared-memory IPC parameters (GRPC_SHM mode)
+    set_text(simulation, 'SharedMemoryDirectory', get_sim_param(config, 'shared_memory_directory'))
+    set_text(simulation, 'SharedMemoryCapacity', get_sim_param(config, 'shared_memory_capacity'))
+    set_text(simulation, 'SharedMemorySlotSizeMB', get_sim_param(config, 'shared_memory_slot_size_mb'))
+    set_bool(simulation, 'SharedMemorySameKernel', get_sim_param(config, 'shared_memory_same_kernel'))
+
+    # Profiling
+    set_bool(simulation, 'EnableProfiling', get_sim_param(config, 'enable_profiling'))
 
     # Time steps
     set_text(simulation, 'TimestepDurationInSeconds', get_sim_param(config, 'timestep_duration_in_seconds'))
@@ -272,13 +401,28 @@ def update_simulator_configuration(config, xml_file):
 
     # Manipulator Environment #
     manipulator_env = root.find('ManipulatorEnvironment')
+    # Manipulator group (segmented via <Manipulators><ManipulatorParameters><Count>)
+    manip_cfg = getattr(config, 'manipulator_environment_dict', None)
+    manip_list = manip_cfg.get('manipulators') if isinstance(manip_cfg, dict) else None
+    if not isinstance(manip_list, list):
+        manip_list = None
 
-    # Manipulator Model
-    set_enum(manipulator_env, 'ManipulatorModel', get_manip_param(config, 'manipulator_model'), {'IIWA14','SO100'})
+    manip_count_int = len(manip_list) if isinstance(manip_list, list) and len(manip_list) > 0 else 1
 
-    # End effector
-    set_bool(manipulator_env, 'EnableEndEffector', get_manip_param(config, 'enable_end_effector'))
-    set_enum(manipulator_env, 'EndEffectorModel', get_manip_param(config, 'end_effector_model'), {'ROBOTIQ_3F','ROBOTIQ_2F85','CALIBRATION_PIN'})
+    manip_parent = manipulator_env.find('Manipulators') if manipulator_env is not None else None
+    manip_nodes = ensure_children(manip_parent, 'ManipulatorParameters', manip_count_int)
+
+    for i, manip_node in enumerate(manip_nodes):
+        cfg = manip_list[i] if manip_list and i < len(manip_list) else {}
+        set_text(manip_node, 'Count', cfg.get('count'))
+        set_enum(manip_node, 'ManipulatorModel', cfg.get('manipulator_model'), {'IIWA14','SO100'})
+        set_bool(manip_node, 'EnableEndEffector', cfg.get('enable_end_effector'))
+        set_enum(manip_node, 'EndEffectorModel', cfg.get('end_effector_model'), {'ROBOTIQ_3F','ROBOTIQ_2F85','CALIBRATION_PIN','DEFAULT_GRIPPER'})
+        set_text(manip_node, 'JointDriveStiffness', cfg.get('joint_drive_stiffness'))
+        set_text(manip_node, 'JointDriveDamping', cfg.get('joint_drive_damping'))
+        set_text(manip_node, 'TrajectoryString', cfg.get('trajectory_string'))
+        set_vec3(manip_node, 'TargetSize', cfg.get('target_size'))
+        set_rgba(manip_node, 'TargetMaterialColor', cfg.get('target_material_color'))
 
     # Floor settings #
     floor = manipulator_env.find('Floor') if manipulator_env is not None else None
@@ -303,6 +447,7 @@ def update_simulator_configuration(config, xml_file):
         item_nodes = ensure_children(items, 'ItemParameters', len(items_cfg_list))
         for i, item_node in enumerate(item_nodes):
             ic = items_cfg_list[i] if i < len(items_cfg_list) else {}
+            set_text(item_node, 'Count', ic.get('count'))
             it_val = ic.get('item_type')
             set_enum(item_node, 'ItemType', str(it_val).upper() if it_val is not None else None, {'SPHERE','BOX'})
             set_vec3(item_node, 'ItemSize', ic.get('item_size'))
@@ -328,18 +473,43 @@ def update_simulator_configuration(config, xml_file):
             set_text(item_node, 'ItemDynamicFrictionRandomizationRange', ic.get('item_dynamic_friction_randomization_range'))
             set_text(item_node, 'ItemStaticFrictionRandomizationRange', ic.get('item_static_friction_randomization_range'))
 
-    # Manipulator TrajectoryString (if provided)
-    set_text(manipulator_env, 'TrajectoryString', get_manip_param(config, 'trajectory_string'))
-
     # Warehouse Environment section
     warehouse_env = root.find('WarehouseEnvironment')
-    # Top-level
-    set_enum(warehouse_env, 'AMRModel', get_warehouse_param(config, 'amr_model'), {'SAFELOG_S2'})
-    set_bool(warehouse_env, 'EnableTransport', get_warehouse_param(config, 'enable_transport'))
-    set_text(warehouse_env, 'MaxChassisLinearSpeed', get_warehouse_param(config, 'max_chassis_linear_speed'))
-    set_text(warehouse_env, 'MaxChassisAngularSpeed', get_warehouse_param(config, 'max_chassis_angular_speed'))
-    set_text(warehouse_env, 'WheelDriveForceLimit', get_warehouse_param(config, 'wheel_drive_force_limit'))
-    set_text(warehouse_env, 'WheelDriveDamping', get_warehouse_param(config, 'wheel_drive_damping'))
+
+    # AMR group (segmented via <AMRs><AMRParameters><Count>)
+    warehouse_cfg = getattr(config, 'warehouse_environment_dict', None)
+    amr_cfg_list = warehouse_cfg.get('amrs') if isinstance(warehouse_cfg, dict) else None
+    if not isinstance(amr_cfg_list, list):
+        amr_cfg_list = None
+
+    amr_count_int = len(amr_cfg_list) if isinstance(amr_cfg_list, list) and len(amr_cfg_list) > 0 else 1
+
+    amrs_parent = warehouse_env.find('AMRs') if warehouse_env is not None else None
+    amr_nodes = ensure_children(amrs_parent, 'AMRParameters', amr_count_int)
+
+    for i, amr_node in enumerate(amr_nodes):
+        cfg = amr_cfg_list[i] if amr_cfg_list and i < len(amr_cfg_list) else {}
+        set_text(amr_node, 'Count', cfg.get('count'))
+        set_enum(amr_node, 'AMRModel', cfg.get('amr_model'), {'SAFELOG_S2'})
+        set_bool(amr_node, 'EnableTransport', cfg.get('enable_transport'))
+        set_rgba(amr_node, 'RobotSegmentationColor', cfg.get('robot_segmentation_color'))
+        set_bool(amr_node, 'RandomizeRobotAppearance', cfg.get('randomize_robot_appearance'))
+        set_bool(amr_node, 'EnableLaserScan', cfg.get('enable_laser_scan'))
+        laser_cfg = cfg.get('laser_scan') if isinstance(cfg.get('laser_scan'), dict) else {}
+        laser_node = amr_node.find('LaserScan') if amr_node is not None else None
+        set_text(laser_node, 'RangeMetersMin', laser_cfg.get('range_meters_min'))
+        set_text(laser_node, 'RangeMetersMax', laser_cfg.get('range_meters_max'))
+        set_text(laser_node, 'ScanAngleStartDegrees', laser_cfg.get('scan_angle_start_degrees'))
+        set_text(laser_node, 'ScanAngleEndDegrees', laser_cfg.get('scan_angle_end_degrees'))
+        set_text(laser_node, 'NumMeasurementsPerScan', laser_cfg.get('num_measurements_per_scan'))
+        set_text(laser_node, 'SensorOffsetX', laser_cfg.get('sensor_offset_x'))
+        set_text(laser_node, 'SensorOffsetY', laser_cfg.get('sensor_offset_y'))
+        set_text(amr_node, 'MaxChassisLinearSpeed', cfg.get('max_chassis_linear_speed'))
+        set_text(amr_node, 'MaxChassisAngularSpeed', cfg.get('max_chassis_angular_speed'))
+        set_text(amr_node, 'WheelDriveForceLimit', cfg.get('wheel_drive_force_limit'))
+        set_text(amr_node, 'WheelDriveDamping', cfg.get('wheel_drive_damping'))
+        set_vec3(amr_node, 'TargetSize', cfg.get('target_size'))
+        set_rgba(amr_node, 'TargetMaterialColor', cfg.get('target_material_color'))
 
     # Ground
     ground = warehouse_env.find('Ground') if warehouse_env is not None else None
@@ -362,6 +532,7 @@ def update_simulator_configuration(config, xml_file):
         wi_nodes = ensure_children(warehouse_items, 'ItemParameters', len(warehouse_items_cfg))
         for i, item_node in enumerate(wi_nodes):
             ic = warehouse_items_cfg[i] if i < len(warehouse_items_cfg) else {}
+            set_text(item_node, 'Count', ic.get('count'))
             it_val = ic.get('item_type')
             set_enum(item_node, 'ItemType', str(it_val).upper() if it_val is not None else None, {'SPHERE','BOX'})
             set_vec3(item_node, 'ItemSize', ic.get('item_size'))
@@ -389,36 +560,43 @@ def update_simulator_configuration(config, xml_file):
 
     # Obstacle manager
     set_bool(warehouse_env, 'EnableObstacleManager', get_warehouse_param(config, 'enable_obstacle_manager'))
+    set_bool(warehouse_env, 'EnableNavMesh', get_warehouse_param(config, 'enable_navmesh'))
     set_text(warehouse_env, 'ObstaclePlacementSeparationMultiplier', get_warehouse_param(config, 'obstacle_placement_separation_multiplier'))
     set_text(warehouse_env, 'ObstacleSpawnBoundaryMargin', get_warehouse_param(config, 'obstacle_spawn_boundary_margin'))
 
     # Static obstacles (support arrays)
-    set_text(warehouse_env, 'StaticObstacleCount', get_warehouse_param(config, 'static_obstacle_count'))
     statics = warehouse_env.find('StaticObstacles') if warehouse_env is not None else None
     static_list = get_warehouse_param(config, 'static_obstacles')
     if isinstance(static_list, list) and len(static_list) > 0:
         sop_nodes = ensure_children(statics, 'StaticObstacleParameters', len(static_list))
         for i, sop in enumerate(sop_nodes):
             so = static_list[i] if i < len(static_list) else {}
+            set_text(sop, 'Count', so.get('count'))
             set_enum(sop, 'ObstacleType', so.get('obstacle_type'), {'BOX'})
             set_vec3(sop, 'ObstacleSize', so.get('obstacle_size'))
             set_bool(sop, 'ObstacleObservability', so.get('obstacle_observability', False))
+            set_text(sop, 'ObstacleMinDistanceFromRobot', so.get('obstacle_min_distance_from_robot'))
             set_rgba(sop, 'ObstacleMaterialColor', so.get('obstacle_material_color'))
 
-    # Dynamic obstacles
-    dyn = warehouse_env.find('DynamicObstacles') if warehouse_env is not None else None
-    dd = get_warehouse_param(config, 'dynamic_obstacles') or {}
-    set_text(dyn, 'DynamicObstacleCount', dd.get('dynamic_obstacle_count'))
-    set_bool(dyn, 'DynamicObstacleObservability', dd.get('dynamic_obstacle_observability'))
-    set_enum(dyn, 'DynamicObstacleMotion', dd.get('dynamic_obstacle_motion'), {'None','Random','Circle','Linear'})
-    set_text(dyn, 'DynamicObstacleMinDistanceFromRobot', dd.get('dynamic_obstacle_min_distance_from_robot'))
-    set_text(dyn, 'MaxLinearSpeed', dd.get('max_linear_speed'))
-    set_text(dyn, 'MaxAngularSpeed', dd.get('max_angular_speed'))
-    set_text(dyn, 'RandomMotionChangePeriodSeconds', dd.get('random_motion_change_period_seconds'))
-    set_text(dyn, 'LinearMotionCycleSeconds', dd.get('linear_motion_cycle_seconds'))
-    set_text(dyn, 'LinearMotionTravelSpeed', dd.get('linear_motion_travel_speed'))
-    set_text(dyn, 'CircleMotionTravelSpeed', dd.get('circle_motion_travel_speed'))
-    set_text(dyn, 'CircleMotionCurvature', dd.get('circle_motion_curvature'))
+    # Dynamic obstacle segments
+    dyn_parent = warehouse_env.find('DynamicObstacles') if warehouse_env is not None else None
+    dynamic_list = get_warehouse_param(config, 'dynamic_obstacles')
+    if isinstance(dynamic_list, list) and len(dynamic_list) > 0:
+        dyn_nodes = ensure_children(dyn_parent, 'DynamicObstacleParameters', len(dynamic_list))
+        for i, dyn_node in enumerate(dyn_nodes):
+            dd = dynamic_list[i] if i < len(dynamic_list) else {}
+            set_text(dyn_node, 'Count', dd.get('count'))
+            set_enum(dyn_node, 'ObstacleModel', dd.get('obstacle_model'), {'SAFELOG_S2'})
+            set_bool(dyn_node, 'ObstacleObservability', dd.get('obstacle_observability'))
+            set_enum(dyn_node, 'ObstacleMotion', dd.get('obstacle_motion'), {'None','Random','Circle','Linear'})
+            set_text(dyn_node, 'ObstacleMinDistanceFromRobot', dd.get('obstacle_min_distance_from_robot'))
+            set_text(dyn_node, 'ObstacleMaxLinearSpeed', dd.get('obstacle_max_linear_speed'))
+            set_text(dyn_node, 'ObstacleMaxAngularSpeed', dd.get('obstacle_max_angular_speed'))
+            set_text(dyn_node, 'RandomMotionChangePeriodSeconds', dd.get('random_motion_change_period_seconds'))
+            set_text(dyn_node, 'LinearMotionCycleSeconds', dd.get('linear_motion_cycle_seconds'))
+            set_text(dyn_node, 'LinearMotionTravelSpeed', dd.get('linear_motion_travel_speed'))
+            set_text(dyn_node, 'CircleMotionTravelSpeed', dd.get('circle_motion_travel_speed'))
+            set_text(dyn_node, 'CircleMotionCurvature', dd.get('circle_motion_curvature'))
 
     # Observation section #
     observation = root.find('Observation')
@@ -456,17 +634,9 @@ def update_simulator_configuration(config, xml_file):
 
     # Randomization settings
     set_bool(observation, 'RandomizeAppearance', get_observation_param(config, 'randomize_appearance'))
+    set_bool(observation, 'RandomizeRobotAppearance', get_observation_param(config, 'randomize_robot_appearance'))
     set_text(observation, 'CameraPositionRandomizationRangeInMeters', get_observation_param(config, 'camera_position_randomization_range_in_meters'))
     set_text(observation, 'CameraRotationRandomizationRangeInDegrees', get_observation_param(config, 'camera_rotation_randomization_range_in_degrees'))
-
-    # Laser scan settings (Warehouse)
-    set_bool(observation, 'EnableLaserScan', get_observation_param(config, 'enable_laser_scan'))
-    laser = observation.find('LaserScan') if observation is not None else None
-    set_text(laser, 'NumMeasurementsPerScan', get_observation_param(config, 'num_measurements_per_scan'))
-    set_text(laser, 'RangeMetersMin', get_observation_param(config, 'range_meters_min'))
-    set_text(laser, 'RangeMetersMax', get_observation_param(config, 'range_meters_max'))
-    set_text(laser, 'ScanAngleStartDegrees', get_observation_param(config, 'scan_angle_start_degrees'))
-    set_text(laser, 'ScanAngleEndDegrees', get_observation_param(config, 'scan_angle_end_degrees'))
 
     try:
         # Write the updated .xml file

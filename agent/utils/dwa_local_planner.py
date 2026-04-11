@@ -36,7 +36,6 @@ class DWAConfig:
         gain_prox_to_obst: Weight for obstacle proximity cost.
         debug_mode: Enable verbose logging when True.
     """
-    freq: float = 50.0
     lookahead: float = 1.0
     min_linear_vel: float = 0.0
     max_linear_vel: float = 1.0
@@ -124,21 +123,14 @@ class DWALocalPlanner:
             return None
         goal = path_use[-1]
 
-        # adjust obstacle gain if far from obstacles
+        # Obstacle cost gain — use the configured weight directly.
         gain_prox_to_obst = self.cfg.gain_prox_to_obst
-        min_dist_obst = float("inf")
-        if obstacles is not None and len(obstacles) > 0:
-            min_dist_obst = self._min_distance(path_use, obstacles)
-            if min_dist_obst > 0.3:
-                gain_prox_to_obst = 0.0
-        else:
-            gain_prox_to_obst = 0.0
 
         Vd = self._dynamic_window(lin_vel, ang_vel)
 
         if self.cfg.debug_mode:
             print(
-                "[DWA] state=({:.2f},{:.2f},{:.2f}) v={:.2f} w={:.2f} path_len={} start_idx={} goal=({:.2f},{:.2f}) min_obs={:.2f} gain_obs={:.2f} window_lin=[{:.2f},{:.2f}] window_ang=[{:.2f},{:.2f}]".format(
+                "[DWA] state=({:.2f},{:.2f},{:.2f}) v={:.2f} w={:.2f} path_len={} start_idx={} goal=({:.2f},{:.2f}) gain_obs={:.2f} window_lin=[{:.2f},{:.2f}] window_ang=[{:.2f},{:.2f}]".format(
                     robot_state[0],
                     robot_state[1],
                     robot_state[2],
@@ -148,7 +140,6 @@ class DWALocalPlanner:
                     idx,
                     goal[0],
                     goal[1],
-                    min_dist_obst,
                     gain_prox_to_obst,
                     float(Vd[:, 0, 0].min()),
                     float(Vd[:, 0, 0].max()),
@@ -159,7 +150,7 @@ class DWALocalPlanner:
 
         lowest_cost = math.inf
         best_pair = (0.0, 0.0)
-        best_traj: List[Tuple[float, float, float]] = []
+        best_traj: np.ndarray = np.empty((0, 3))
         best_debug = ""
 
         for i in range(Vd.shape[0]):
@@ -172,9 +163,18 @@ class DWALocalPlanner:
                     best_traj = traj
                     best_debug = dbg
 
-        # Recovery check: if too close to goal or no path, bail early
+        # If every sampled trajectory is infeasible (all costs infinite),
+        # signal failure so the caller can activate recovery behaviors.
+        if lowest_cost >= math.inf:
+            if self.cfg.debug_mode:
+                print("[DWA] ALL trajectories infeasible — signalling failure")
+            return None
+
+        traj_list = [tuple(row) for row in best_traj] if best_traj.size > 0 else []
+
+        # Goal-reached check
         if self._goal_reached(robot_state, goal):
-            return DWAResult(linear_vel=0.0, angular_vel=0.0, trajectory=best_traj, cost=lowest_cost, debug="goal reached")
+            return DWAResult(linear_vel=0.0, angular_vel=0.0, trajectory=traj_list, cost=lowest_cost, debug="goal reached")
 
         if self.cfg.debug_mode:
             print(
@@ -183,7 +183,7 @@ class DWALocalPlanner:
                 )
             )
 
-        return DWAResult(linear_vel=best_pair[0], angular_vel=best_pair[1], trajectory=best_traj, cost=lowest_cost, debug=best_debug)
+        return DWAResult(linear_vel=best_pair[0], angular_vel=best_pair[1], trajectory=traj_list, cost=lowest_cost, debug=best_debug)
 
     def _dynamic_window(self, lin_vel: float, ang_vel: float) -> np.ndarray:
         """Sample feasible (linear, angular) velocities from the dynamic window.
@@ -206,11 +206,7 @@ class DWALocalPlanner:
         ang_space = np.linspace(max(self.cfg.min_angular_vel, ang_min), min(self.cfg.max_angular_vel, ang_max), self.cfg.res_ang_vel_space)
 
         yv, xv = np.meshgrid(lin_space, ang_space, indexing="ij")
-        Vd = np.empty((self.cfg.res_lin_vel_space, self.cfg.res_ang_vel_space, 2), dtype=float)
-        for i in range(self.cfg.res_lin_vel_space):
-            for j in range(self.cfg.res_ang_vel_space):
-                Vd[i, j] = (yv[i, j], xv[i, j])
-        return Vd
+        return np.stack([yv, xv], axis=-1)
 
     def _trajectory_cost(
         self,
@@ -219,7 +215,7 @@ class DWALocalPlanner:
         path: np.ndarray,
         obstacles: Optional[np.ndarray],
         gain_prox_to_obst: float,
-    ) -> Tuple[float, List[Tuple[float, float, float]], str]:
+    ) -> Tuple[float, np.ndarray, str]:
         """Evaluate a control pair and return its total cost and trajectory.
 
         Args:
@@ -230,20 +226,22 @@ class DWALocalPlanner:
             gain_prox_to_obst: Obstacle cost weight to apply.
 
         Returns:
-            Tuple[float, List[Tuple[float, float, float]], str]: (total_cost, trajectory, debug_string).
+            Tuple of (total_cost, trajectory_array, debug_string).
         """
         new_state, traj = self._motion_update(robot_state, control_pair)
-        goal = path[-1]
         lin_vel = control_pair[0]
         cost_vel = self._vel_cost(lin_vel)
-        cost_angle = self._angle_to_goal_cost(new_state, goal)
+        cost_angle = self._angle_to_goal_cost(new_state, path[-1])
         cost_path = self._path_cost(new_state, path)
         cost_obst = self._obst_cost(traj, control_pair, obstacles) if gain_prox_to_obst > 0.0 else 0.0
-        debug = f"vel={cost_vel:.3f}, angle={cost_angle:.3f}, path={cost_path:.3f}, obst={cost_obst:.3f}"
         total = self.cfg.gain_vel * cost_vel + self.cfg.gain_glob_path * cost_path + self.cfg.gain_angle_to_goal * cost_angle + gain_prox_to_obst * cost_obst
+        if self.cfg.debug_mode:
+            debug = f"vel={cost_vel:.3f}, angle={cost_angle:.3f}, path={cost_path:.3f}, obst={cost_obst:.3f}"
+        else:
+            debug = ""
         return total, traj, debug
 
-    def _motion_update(self, robot_state: Tuple[float, float, float], control_pair: Tuple[float, float], traj_resolution: int = 10) -> Tuple[Tuple[float, float, float], List[Tuple[float, float, float]]]:
+    def _motion_update(self, robot_state: Tuple[float, float, float], control_pair: Tuple[float, float], traj_resolution: int = 10) -> Tuple[Tuple[float, float, float], np.ndarray]:
         """Simulate motion over the lookahead horizon for a control pair.
 
         Args:
@@ -253,31 +251,31 @@ class DWALocalPlanner:
 
         Returns:
             Tuple of (new_state, trajectory) where new_state is (x, y, yaw) at
-            horizon end, and trajectory is the list of intermediate samples.
+            horizon end, and trajectory is an (N, 3) array of intermediate samples.
         """
         x, y, yaw = robot_state
         v, w = control_pair
         dt = self.cfg.lookahead / max(traj_resolution, 1)
-        traj: List[Tuple[float, float, float]] = []
+        steps = np.arange(1, traj_resolution + 1)
 
         if abs(w) < 1e-3:
             dx = v * math.cos(yaw) * dt
             dy = v * math.sin(yaw) * dt
             yawn = yaw + self.cfg.lookahead * w
-            for step in range(1, traj_resolution + 1):
-                traj.append((x + dx * step, y + dy * step, yaw))
-            xn, yn = traj[-1][0], traj[-1][1]
-            return (xn, yn, yawn), traj
+            xs = x + dx * steps
+            ys = y + dy * steps
+            traj = np.column_stack([xs, ys, np.full(traj_resolution, yaw)])
+            return (float(xs[-1]), float(ys[-1]), yawn), traj
 
         r = v / w if w != 0 else 0.0
         dx_partial = -r * math.sin(yaw)
         dy_partial = r * math.cos(yaw)
         yawn = yaw + self.cfg.lookahead * w
-        for step in range(1, traj_resolution + 1):
-            yawn_calc = yaw + w * dt * step
-            traj.append((x + dx_partial + r * math.sin(yawn_calc), y + dy_partial - r * math.cos(yawn_calc), yawn_calc))
-        xn, yn = traj[-1][0], traj[-1][1]
-        return (xn, yn, yawn), traj
+        yawn_arr = yaw + w * dt * steps
+        xs = x + dx_partial + r * np.sin(yawn_arr)
+        ys = y + dy_partial - r * np.cos(yawn_arr)
+        traj = np.column_stack([xs, ys, yawn_arr])
+        return (float(xs[-1]), float(ys[-1]), yawn), traj
 
     def _goal_reached(self, robot_state: Tuple[float, float, float], goal: np.ndarray) -> bool:
         """Return True when the robot is within the goal tolerance.
@@ -329,33 +327,49 @@ class DWALocalPlanner:
         Returns:
             float: Minimum Euclidean distance to the path.
         """
-        diff = path - np.array(new_state[:2])
-        dists = np.hypot(diff[:, 0], diff[:, 1])
+        dists = np.hypot(path[:, 0] - new_state[0], path[:, 1] - new_state[1])
         return float(np.min(dists)) if dists.size else math.inf
 
-    def _obst_cost(self, traj: List[Tuple[float, float, float]], control_pair: Tuple[float, float], obstacles: Optional[np.ndarray]) -> float:
-        """Obstacle proximity cost; returns inf if trajectory violates clearance.
+    def _obst_cost(self, traj: np.ndarray, control_pair: Tuple[float, float], obstacles: Optional[np.ndarray]) -> float:
+        """ROS1-style obstacle proximity cost.
+
+        Uses a simple two-zone model consistent with the ROS1 DWA local
+        planner's costmap-based scoring:
+
+        1. **Hard collision** (cost = inf): trajectory point enters the robot
+           footprint (``min_dist < robot_radius``).
+        2. **Linear proximity** (cost in [0, 1]): linear decay from 1.0 at
+           the robot surface to 0.0 at the safety distance edge.
+        3. **Free space** (cost = 0): trajectory is farther than
+           ``robot_radius + safety_distance`` from all obstacles.
 
         Args:
-            traj: Rollout trajectory samples [(x, y, yaw), ...].
-            control_pair: (linear_vel, angular_vel) used to generate the trajectory.
+            traj: Rollout trajectory as (N, 3) ndarray of (x, y, yaw) samples.
+            control_pair: (linear_vel, angular_vel) used to generate the
+                trajectory.  Unused in ROS1 model (kept for interface
+                compatibility).
             obstacles: Optional obstacle points as Nx2 array.
 
         Returns:
-            float: Inverse distance cost or inf if clearance is violated.
+            float: Linear proximity cost in [0, 1], or ``math.inf`` on
+            collision.
         """
         if obstacles is None or len(obstacles) == 0:
             return 0.0
-        traj_arr = np.asarray(traj, dtype=float)
-        traj_xy = traj_arr[:, :2]
-        obst_xy = np.asarray(obstacles, dtype=float)
-        if obst_xy.ndim != 2 or obst_xy.shape[1] < 2:
+        traj_xy = traj[:, :2]
+        if obstacles.ndim != 2 or obstacles.shape[1] < 2:
             return 0.0
-        min_dist = self._min_distance(traj_xy, obst_xy)
-        threshold = self.cfg.robot_radius + self.cfg.safety_distance + (control_pair[0] ** 2) / max(2 * self.cfg.max_dec, 1e-6)
-        if min_dist < threshold:
+        min_dist = self._min_distance(traj_xy, obstacles[:, :2])
+
+        # Hard collision: trajectory enters the physical robot footprint
+        if min_dist < self.cfg.robot_radius:
             return math.inf
-        return 1.0 / max(min_dist, 1e-6)
+
+        # Linear proximity penalty within the safety zone
+        clearance = min_dist - self.cfg.robot_radius
+        if clearance >= self.cfg.safety_distance:
+            return 0.0
+        return 1.0 - clearance / max(self.cfg.safety_distance, 1e-6)
 
     @staticmethod
     def _euclidean(p1: Sequence[float], p2: Sequence[float]) -> float:

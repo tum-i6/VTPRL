@@ -20,6 +20,7 @@ xhost + local:
 
 # After building create a container with the built image running the command below from the repo root folder.
 # Same for NoCUDA, but remove the --gpus parameter as it is not supported on non-cuda-enabled devices. [repo_name] is a name placeholder; for instance you can use vtprl.
+# If using GRPC_SHM shared-memory IPC, add:  -v C:\shm:/shm:rw  (or the appropriate host path)
 docker run --rm -it \
            --name vtprl_container \
            --gpus all \
@@ -34,9 +35,12 @@ docker run --rm -it \
 # If you are running the Docker container on WSL under Windows 11 and would like to enable the graphical viewers and monitors,
 # you need to create a container with command below. This time several options have been added to enable container's access to Gtk and connected screens.
 # In this way, graphical apps can be started within the container. 
+# If using GRPC_SHM shared-memory IPC, keep:  -v /mnt/c/shm:/shm:rw  (maps Windows C:\shm into container's /shm)
+# Instead of port mapping, you can use --net="host" to completely map the container network to the host, but this is not stable solution in WSL.
 docker run --rm -it \
            --name vtprl_container \
            --gpus all \
+           -v /mnt/c/shm:/shm:rw \
            -v /tmp/.X11-unix:/tmp/.X11-unix \
            -v /mnt/wslg:/mnt/wslg \
            -e DISPLAY \
@@ -46,7 +50,7 @@ docker run --rm -it \
            -v $(pwd):/home/[repo_name]:rw \
            -v $(pwd)/external/stable-baselines3:/home/repos/stable-baselines3:ro \
            --privileged \
-           --net="host" \
+           -p 8050:8050 \
            vtprl_image:latest \
            bash
 

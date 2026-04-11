@@ -76,7 +76,7 @@ class Config:
         """
         return {
             # Common
-            'max_time_step': 1000,                                                      # Episode length in simulation steps
+            'max_time_step': 3000,                                                       # Episode length in simulation steps
 
             # available manipulator environments (*) 'env_key' should include 'iiwa' or 'so100' -- relevant to set Unity's manipulator_model
             # 'env_key': 'iiwa_sample_dart_unity_env',                                    # For control in task space with dart
@@ -97,6 +97,21 @@ class Config:
 
             # enable task monitor to visualize states, velocities, agent actions, reward of the robot.
             'task_monitor': True,                                                       # Show live task monitor overlay GUI
+            'task_monitor_type': 'web',                                                 # Task monitor backend: 'qt' (PySide2 window) | 'web' (Plotly web app)
+
+            # Data-trace recording (writes telemetry to disk for offline replay)
+            'data_trace': {
+                'enabled': False,                                                       # Set True to activate recording
+                'trace_root': 'traces/run_001',                                         # Output directory for trace episodes
+                'channels': None,                                                       # List of channel names to record (None = all).
+                                                                                        # Available: AGENT_STATE, LASER_SCAN, LASER_POINTS,
+                                                                                        #   OCCUPANCY_GRID, COSTMAP, NAVMESH, PLANNER_PATHS,
+                                                                                        #   IMAGES, ITEM_POSES, ROBOTS_PAYLOAD
+                'compress_arrays': True,                                                # Compress .npz files (recommended)
+                'max_episodes': None,                                                   # Cap on recorded episodes per env (None = unlimited)
+                'flush_interval_steps': 200,                                            # Flush NPZ buffers every N steps
+                'record_env_ids': None,                                                 # Record only these env ids (None = all)
+            },
 
             # Sub-environments
             'manipulator_gym_environment': Config.get_manipulator_gym_environment_dict(),   # Manipulator-specific gym settings (sub-dict)
@@ -109,6 +124,11 @@ class Config:
         return {
             # The state of the RL agent in case of numeric values
             'state': 'a',                                                               # Agent observation state type: 'a' (angles) | 'av' (angles+velocities)
+
+            # Spawn pose control (Unity coordinates)
+            'robot_poses': [[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]],                            # Fixed robot base poses [[x,y,z,rx,ry,rz], ...]
+            # 'target_poses': [[0.45, 0.35, 0.45, 0.0, 0.0, 0.0]],                        # Fixed target poses [[x,y,z,rx,ry,rz], ...]
+            # 'item_poses': [[0.45, 0.10, 0.35, 0.0, 0.0, 0.0]],                          # Fixed item poses [[x,y,z,rx,ry,rz], ...]
 
             # These functionallities are not supported for the standalone env 'iiwa_sample_joint_vel_env'
             # - see reset() and __init__ to adapt if needed
@@ -144,20 +164,36 @@ class Config:
             'distance_weight': 0.2,                                                     # Weight of distance-based shaping term in reward
             'yaw_weight': 0.0,                                                          # Weight of yaw-based shaping term in reward
             'num_joints': 3,                                                            # Number of controllable joints/DoFs for the AMR model
-            'randomize_spawn_poses': True,                                              # Randomize robot/target/object poses each episode instead of the fixed values below
-            'spawn_min_separation': 2.0,                                                # Minimum separation [m] between robot/target/object when randomizing poses
-            'target_pose': [-5.5, 0.0, 0.0],                                            # Fixed target pose [x, y, yaw]
-            'object_pose': [-4.2, 0.0, 0.0],                                            # Fixed obstacle pose [x, y, yaw]
-            'robot_pose': [2.0, 0.0, 0.0],                                              # Fixed robot spawn pose [x, y, yaw]
-            'laser_sensor_offset': (0.29, 0.0),                                         # Laser sensor offset in Unity chassis frame (x,z)
+            'randomize_spawn_poses': False,                                             # Randomize robot/target/item poses each episode
+            'spawn_min_separation': 1.0,                                                # Minimum separation [m] between robot/target/item when randomizing poses
+            'robot_poses': [[-2.0, -1.0, +np.pi/2],
+                            [0.0, +1.0, -np.pi/2],
+                            [+3.0, -5.0, -np.pi/2],
+                            [-3.0, +5.0, -np.pi/2]],                                    # Fixed robot poses [[x,y,yaw], ...] when randomize_spawn_poses=False (length must be >= expanded AMR count)
+            'target_poses': [[+3.0, +5.0, 0.0],
+                             [+3.0, -5.0, 0.0],
+                             [0.0, +4.0, +np.pi/2],
+                             [0.0, -4.0, +np.pi/2]],                                    # Fixed target poses [[x,y,yaw], ...] when randomize_spawn_poses=False (length must be >= expanded AMR count)
+            'item_poses': [[2.0, 0.0, 0.0],
+                           [-1.75, 0.0, np.pi/2],
+                           [-0.5, -2.0, np.pi/2],
+                           [-0.5, 2.0, np.pi/2]],                                       # Fixed item poses [[x,y,yaw], ...] when randomize_spawn_poses=False (length must be >= expanded item count)
 
             # NavMesh rasterization parameters
             'navmesh_occupancy_resolution': 0.1,                                        # Grid resolution [m] when rasterizing NavMesh to occupancy
             'navmesh_occupancy_padding_cells': 1,                                       # Padding cells applied around NavMesh bounds in occupancy grid
             'navmesh_occupancy_rotation_deg': 0.0,                                      # Rotation [deg] applied when rasterizing NavMesh
 
+            # A* global planner parameters
+            'astar_robot_chassis_width': 0.50,                                          # Robot chassis width [m] used for A* footprint collision checks
+            'astar_robot_chassis_length': 0.80,                                         # Robot chassis length [m] used for A* footprint collision checks
+            'astar_obstacle_clearance': 0.0,                                            # Extra safety clearance [m] added on top of footprint radius in A* validity checks
+            'max_projection_distance_cells': 8,                                         # Max grid-cell radius to project invalid start/goal onto nearest valid cell
+
+            # Local controller type: 'DWA' (ROS1-style) or 'DWB' (Nav2-style critic-based)
+            'local_controller_type': 'DWB',                                             # Which local planner to use. 'DWA' or 'DWB'.
+
             # DWA local planner parameters
-            'dwa_freq': 50.0,                                                           # Control frequency [Hz]
             'dwa_lookahead': 1.0,                                                       # Prediction horizon [s]
             'dwa_min_linear_vel': 0.0,                                                  # Minimum linear velocity [m/s]
             'dwa_max_linear_vel': 0.8,                                                  # Maximum linear velocity [m/s]
@@ -165,15 +201,40 @@ class Config:
             'dwa_max_angular_vel': 0.5,                                                 # Maximum angular velocity [rad/s]
             'dwa_max_acc': 1.0,                                                         # Maximum linear acceleration [m/s^2]
             'dwa_max_dec': 1.0,                                                         # Maximum linear deceleration [m/s^2]
-            'dwa_robot_radius': 0.35,                                                   # Robot radius for collision checking [m]
+            'dwa_robot_radius': 0.4,                                                    # Robot radius for collision checking [m]
             'dwa_safety_distance': 0.3,                                                 # Safety distance from obstacles [m]
-            'dwa_min_dist_goal': 0.1,                                                   # Distance tolerance to consider goal reached [m]
+            'dwa_min_dist_goal': 0.1,                                                   # Position tolerance to consider goal reached [m]
             'dwa_res_lin_vel_space': 11,                                                # Sampling resolution for linear velocity
             'dwa_res_ang_vel_space': 11,                                                # Sampling resolution for angular velocity
             'dwa_gain_glob_path': 3.0,                                                  # Weight for global path tracking term
             'dwa_gain_angle_to_goal': 2.0,                                              # Weight for heading-to-goal term
             'dwa_gain_vel': 1.0,                                                        # Weight favoring higher forward velocity
             'dwa_gain_prox_to_obst': 1.0,                                               # Weight penalizing proximity to obstacles
+
+            # DWB local planner parameters
+            'dwb_lookahead': 1.0,                                                       # Prediction horizon [s]
+            'dwb_min_linear_vel': 0.0,                                                  # Minimum linear velocity [m/s]
+            'dwb_max_linear_vel': 0.8,                                                  # Maximum linear velocity [m/s]
+            'dwb_min_angular_vel': -0.5,                                                # Minimum angular velocity [rad/s]
+            'dwb_max_angular_vel': 0.5,                                                 # Maximum angular velocity [rad/s]
+            'dwb_max_acc': 1.0,                                                         # Maximum linear acceleration [m/s^2]
+            'dwb_max_dec': 1.0,                                                         # Maximum linear deceleration [m/s^2]
+            'dwb_max_ang_acc': 1.0,                                                     # Maximum angular acceleration [rad/s^2]
+            'dwb_robot_radius': 0.4,                                                    # Robot radius for collision checking [m]
+            'dwb_safety_distance': 0.3,                                                 # Safety distance from obstacles [m]
+            'dwb_min_dist_goal': 0.1,                                                   # Position tolerance to consider goal reached [m]
+            'dwb_yaw_goal_tolerance': 0.05,                                             # Heading tolerance at the goal [rad]
+            'dwb_res_lin_vel_space': 11,                                                # Sampling resolution for linear velocity
+            'dwb_res_ang_vel_space': 11,                                                # Sampling resolution for angular velocity
+            'dwb_oscillation_reset_dist': 0.15,                                         # Forward travel to reset oscillation flags [m]
+            'dwb_oscillation_reset_angle': 0.25,                                        # Rotation to reset oscillation flags [rad]
+            'dwb_scale_path_dist': 128.0,                                               # Weight for PathDist critic
+            'dwb_scale_goal_dist': 8.0,                                                 # Weight for GoalDist critic
+            'dwb_scale_path_align': 64.0,                                               # Weight for PathAlign critic (key for corridors)
+            'dwb_scale_goal_align': 8.0,                                                # Weight for GoalAlign critic
+            'dwb_scale_obstacle': 2.0,                                                  # Weight for ObstacleFootprint critic
+            'dwb_scale_prefer_forward': 16.0,                                           # Weight for PreferForward critic
+            'dwb_scale_rotate_to_goal': 32.0,                                           # Weight for RotateToGoal critic (near goal)
         }
 
     @staticmethod
@@ -233,11 +294,17 @@ class Config:
     def get_simulation_dict():
         """Configuration for the <Simulation> XML section only."""
         return {
-            'communication_type': 'GRPC',                                               # (*) Options: GRPC, GRPC_NRP, ROS or ZMQ
-            'ip_address': 'localhost',                                                  # (*) The ip address of the simulator server -- 'host.docker.internal' (use for windows and docker),  'localhost' (use for linux for connections on local machine)
+            'communication_type': 'GRPC_BIN',                                           # (*) Options: GRPC, GRPC_NRP, GRPC_SHM, GRPC_BIN, ROS or ZMQ
+            'ip_address': 'host.docker.internal',                                       # (*) The ip address of the simulator server -- 'host.docker.internal' (use for windows and docker),  'localhost' (use for linux for connections on local machine)
             'port_number': '9092',                                                      # (*) Port number for communication with the simulator
             'grpc_timeout_seconds': 60.0,                                               # Timeout in float seconds applied to individual gRPC RPCs; set to 0/None to disable client-side deadlines
-            'timestep_duration_in_seconds': 0.02,                                       # (*) Agent observation/action control cycle
+            'shared_memory_directory': '/shm',                                          # (*) Directory for shared-memory backing files (GRPC_SHM mode); must be bind-mounted from Windows host
+            'shared_memory_capacity': 4,                                                # (*) Number of ring-buffer slots (power-of-2, GRPC_SHM mode)
+            'shared_memory_slot_size_mb': 64,                                           # (*) Payload size per slot in MiB (GRPC_SHM mode)
+            'shared_memory_same_kernel': False,                                         # (*) Set True when Unity & Python share the same OS kernel (both Linux or both Windows) for max SHM speed; False for cross-OS (WSL2/Docker)
+            'enable_profiling': False,                                                  # (*) Enable cross-language step profiler; sends C# timings to Python and prints a per-step report
+            'profiling_print_every_n': 1,                                               # Print the profiling report every N steps (1 = every step). Only relevant when enable_profiling is True
+            'timestep_duration_in_seconds': 0.1,                                        # (*) Agent observation/action control cycle
             'physics_simulation_increment_in_seconds': 0.02,                            # (*) Unity PhysX discrete step update
             'improved_patch_friction': True,                                            # (*) Make PhysX use the friction mode that guarantees static and dynamic friction do not exceed analytical results
             'random_seed': 256,                                                         # (*) The seed used for generating pseudo-random sequences
@@ -253,18 +320,26 @@ class Config:
     def get_manipulator_environment_dict():
         """Configuration for the <ManipulatorEnvironment> XML section."""
         return {
-            # Manipulator core
-            'manipulator_model': 'IIWA14',                                              # (*) Options: IIWA14, SO100
-            'enable_end_effector': True,                                                # (*) Set to False if no tool is attached. Important: in that case, set 'end_effector_model' to None
-            'end_effector_model': 'CALIBRATION_PIN',                                    # (*) Options: ROBOTIQ_3F, ROBOTIQ_2F85, CALIBRATION_PIN, None. Also, 'enable_end_effector' should be set to True.
-                                                                                        #               -> For 'iiwa_sample_joint_vel_env' select a gripper
-                                                                                        #     Options: 'DEFAULT_GRIPPER' for SO-100 arm. Also, 'enable_end_effector' should be set to True.
-            'trajectory_string': '',                                                    # (*) Optional serialized trajectory definition for task playback
+            # Manipulator segments (<Manipulators><ManipulatorParameters><Count>...)
+            'manipulators': [
+                {
+                    'count': 1,                                                         # (*) Number of manipulators represented by this parameter segment
+                    'manipulator_model': 'IIWA14',                                      # (*) Options: IIWA14, SO100
+                    'enable_end_effector': True,                                        # (*) Set to False if no tool is attached. In that case, set 'end_effector_model' to None
+                    'end_effector_model': 'CALIBRATION_PIN',                            # (*) Options: ROBOTIQ_3F, ROBOTIQ_2F85, CALIBRATION_PIN, DEFAULT_GRIPPER
+                    'joint_drive_stiffness': 10000.0,                                   # (*) Joint drive stiffness for manipulator joints
+                    'joint_drive_damping': 10000.0,                                     # (*) Joint drive damping for manipulator joints
+                    'trajectory_string': '',                                            # (*) Optional serialized trajectory definition for task playback
+                    'target_size': [0.1, 0.1, 0.001],                                   # (*) [x, y, z] [m] target marker size
+                    'target_material_color': [1.0, 0.0, 0.0, 1.0],                      # (*) [R, G, B, A]
+                    'base_pose': [0.0, 0.0, 0.0, 0.0, 0.0, 0.0],                        # (*) [x, y, z, rx, ry, rz] [m, rad] base pose in ROS convention
+                }
+            ],
 
             # Floor
             'floor': {
                 'floor_type': 'MONOCHROMATIC',                                          # (*) Options: 'CHECKERBOARD', 'WOOD', 'MONOCHROMATIC'
-                'floor_size': [2.4, 0.01, 2.4],                                         # (*) [X, Y, Z] [m] - Floor dimensions
+                'floor_size': [2.4, 2.4, 0.01],                                         # (*) [x, y, z] [m] - Floor dimensions
                 'floor_material': 'HOMOGENEOUS',                                        # (*) Options: 'HOMOGENEOUS' and 'HETEROGENEOUS'
                 'visualize_floor_material': False,                                      # (*) Whether to visualize the material heterogeneity of the floor
                 'floor_material_color': [0.235294119, 0.509803951, 0.9411765, 1.0],     # (*) [R, G, B, A] -- only used when floor_type is set to 'MONOCHROMATIC'
@@ -284,14 +359,15 @@ class Config:
                 'floor_material_grid_static_friction': [1.0],                           # (*) an array with elements between 0.0 and 1.0
             },
 
-            # Items pool
+            # Item segments (<Items><ItemParameters><Count>...)
             'items': [
                 {
+                    'count': 0,                                                         # (*) Number of items represented by this parameter segment
                     'item_type': 'BOX',                                                 # (*) Options: 'BOX' ( and 'SPHERE' legacy)
 
-                    'item_size': [0.2, 0.2, 0.3],                                       # (*) [X, Y, Z] [m] - Item dimensions
+                    'item_size': [0.3, 0.2, 0.2],                                       # (*) [x, y, z] [m] - Item dimensions
                     'item_mass': 6.0,                                                   # (*) [kg]
-                    'item_center_of_mass': [0.0, 0.0, 0.0],                             # (*) [X, Y, Z] [m] - Center of mass position
+                    'item_center_of_mass': [0.0, 0.0, 0.0],                             # (*) [x, y, z] [m] - Center of mass position
                     'item_linear_damping': 2.0,                                         # (*) decay rate of linear velocity, to simulate drag, air resistance, or friction
                     'item_observability': True,                                         # (*) Whether to observe the numeric pose of the item
 
@@ -303,9 +379,9 @@ class Config:
                     # The division of the material homogenity along the X/Y/Z axis
                     # ⤷ -- for a homogeneous item is always { 1.0f }
                     # ⤷ -- for each axis an array of floats summing up to 1.0 should be defined
-                    'item_material_grid_x': [1.0],                                      # (*) an array with elements between 0.0 and 1.0
+                    'item_material_grid_x': [0.5, 0.5],                                 # (*) an array with elements between 0.0 and 1.0
                     'item_material_grid_y': [1.0],                                      # (*) an array with elements between 0.0 and 1.0
-                    'item_material_grid_z': [0.5, 0.5],                                 # (*) an array with elements between 0.0 and 1.0
+                    'item_material_grid_z': [1.0],                                      # (*) an array with elements between 0.0 and 1.0
 
                     # The dynamic/static friction coefficient for each division of the material grid (order Z,Y,X)
                     # ⤷ -- for a homogeneous item is always { 1.0f }
@@ -318,7 +394,7 @@ class Config:
                     'randomize_item_mass': False,                                       # (*) Randomize item mass
                     'item_mass_randomization_range': 0.1,                               # (*) [kg] - The range to use for uniform sampling when randomizing mass around its default value
                     'randomize_item_center_of_mass': False,                             # (*) Randomize item center of mass
-                    'item_center_of_mass_randomization_range': [0.0, 0.0, 0.075],       # (*) [m] - The range to use for uniform sampling along x,y,z axes when randomizing center of mass around its default value
+                    'item_center_of_mass_randomization_range': [0.075, 0.0, 0.0],       # (*) [m] - The range to use for uniform sampling along x,y,z axes when randomizing center of mass around its default value
                     'randomize_item_friction': False,                                   # (*) Randomize item friction coefficients
                     'item_dynamic_friction_randomization_range': 0.1,                   # (*) The range to use for uniform sampling when randomizing dynamic friction around its default value
                     'item_static_friction_randomization_range': 0.1,                    # (*) The range to use for uniform sampling when randomizing static friction around its default value
@@ -330,18 +406,37 @@ class Config:
     def get_warehouse_environment_dict():
         """Configuration for the <WarehouseEnvironment> XML section."""
         warehouse_dict = {
-            # Top-level
-            'amr_model': 'SAFELOG_S2',                                                  # (*) Autonomous Mobile Robot model to spawn
-            'enable_transport': False,                                                  # (*) Enable pallet transport lift mechanism on the AMR
-            'max_chassis_linear_speed': 0.8,                                            # (*) Max linear speed of the chassis [m/s]
-            'max_chassis_angular_speed': 0.5,                                           # (*) Max angular speed of the chassis [rad/s]
-            'wheel_drive_force_limit': 10.0,                                            # (*) Drive force limit applied to wheel motors
-            'wheel_drive_damping': 10.0,                                                # (*) Damping applied to wheel drive to stabilize motion
+            # AMR segments (<AMRs><AMRParameters><Count>...)
+            'amrs': [
+                {
+                    'count': 4,                                                         # (*) Number of AMRs represented by this parameter segment
+                    'amr_model': 'SAFELOG_S2',                                          # (*) Autonomous Mobile Robot model to spawn
+                    'enable_transport': False,                                          # (*) Enable pallet transport lift mechanism on the AMR
+                    'robot_segmentation_color': [1.0, 0.0, 1.0, 1.0],                   # (*) [R, G, B, A] segmentation color for this AMR segment
+                    'randomize_robot_appearance': True,                                 # (*) Randomize robot appearance for this AMR segment
+                    'enable_laser_scan': True,                                          # (*) Enable laser scanner for this AMR segment
+                    'laser_scan': {
+                        'range_meters_min': 0.12,                                       # (*) Minimum measurable laser range in meters
+                        'range_meters_max': 100.0,                                      # (*) Maximum measurable laser range in meters
+                        'scan_angle_start_degrees': -89.0,                              # (*) Start angle of the scan sector in degrees
+                        'scan_angle_end_degrees': 90.0,                                 # (*) End angle of the scan sector in degrees
+                        'num_measurements_per_scan': 180,                               # (*) Number of laser range samples per scan
+                        'sensor_offset_x': 0.29,                                        # (*) Laser sensor X offset in AMR local frame [m]
+                        'sensor_offset_y': 0.0,                                         # (*) Laser sensor Y offset in AMR local frame [m]
+                    },
+                    'max_chassis_linear_speed': 0.8,                                    # (*) Max linear speed of the chassis [m/s]
+                    'max_chassis_angular_speed': 0.5,                                   # (*) Max angular speed of the chassis [rad/s]
+                    'wheel_drive_force_limit': 10.0,                                    # (*) Drive force limit applied to wheel motors
+                    'wheel_drive_damping': 10.0,                                        # (*) Damping applied to wheel drive to stabilize motion
+                    'target_size': [0.8, 0.5, 0.001],                                   # (*) [x, y, z] [m] target marker size
+                    'target_material_color': [1.0, 0.0, 0.0, 1.0],                      # (*) [R, G, B, A]
+                }
+            ],
 
             # Ground
             'ground': {
-                'ground_type': 'TEXTURED',                                              # MONOCHROMATIC, TEXTURED, PREFAB
-                'ground_size': [12.5, 0.1, 7.5],                                        # (*) [X, Y, Z] [m] - Ground plane dimensions
+                'ground_type': 'TEXTURED',                                              # (*) MONOCHROMATIC, TEXTURED, PREFAB
+                'ground_size': [7.5, 12.5, 0.1],                                        # (*) [x, y, z] [m] - Ground plane dimensions
                 'wall_height': 0.5,                                                     # (*) Height of boundary walls surrounding the ground [m]
                 'ground_material': 'HOMOGENEOUS',                                       # (*) Options: 'HOMOGENEOUS' and 'HETEROGENEOUS'
                 'visualize_ground_material': False,                                     # (*) Whether to visualize heterogeneity of ground material
@@ -353,13 +448,14 @@ class Config:
                 'ground_material_grid_static_friction': [1.0],                          # (*) Static friction per grid cell (order Z,Y,X)
             },
 
-            # Items (transport targets)
-            'items': [                                                                  # (*) Pool of items the robot can transport
+            # Item segments (transport targets)
+            'items': [
                 {
+                    'count': 4,                                                         # (*) Number of items represented by this parameter segment
                     'item_type': 'BOX',                                                 # (*) Options: 'BOX'
-                    'item_size': [1.0, 1.0, 1.0],                                       # (*) [X, Y, Z] [m] - Item dimensions
+                    'item_size': [1.0, 4.0, 0.5],                                       # (*) [x, y, z] [m] - Item dimensions
                     'item_mass': 10.0,                                                  # (*) [kg]
-                    'item_center_of_mass': [0.0, 0.0, 0.0],                             # (*) [X, Y, Z] [m] - Center of mass position
+                    'item_center_of_mass': [0.0, 0.0, 0.0],                             # (*) [x, y, z] [m] - Center of mass position
                     'item_linear_damping': 2.0,                                         # (*) Decay rate of linear velocity for item body
                     'item_observability': True,                                         # (*) Whether the item pose is observable numerically
                     'item_material': 'HOMOGENEOUS',                                     # (*) Options: 'HOMOGENEOUS' and 'HETEROGENEOUS'
@@ -383,35 +479,55 @@ class Config:
 
             # Obstacle manager
             'enable_obstacle_manager': True,                                            # (*) Enable automatic placement/spawn of obstacles in the map
-            'obstacle_placement_separation_multiplier': 2.8,                            # (*) Multiplier ensuring minimum separation between obstacles
+            'enable_navmesh': True,                                                     # (*) Enable NavMesh build/carving/observation pipeline
+            'obstacle_placement_separation_multiplier': 1.0,                            # (*) Multiplier ensuring minimum separation between obstacles
             'obstacle_spawn_boundary_margin': 0.25,                                     # (*) Margin [m] from boundaries where obstacles cannot spawn
-            'static_obstacle_count': 1,                                                 # (*) Number of static obstacles to spawn (drawn from pool below)
 
-            # Static obstacles pool
-            'static_obstacles': [                                                       # (*) Pool of static obstacle parameter variants
-                # Example element (duplicate to define more varieties in the pool):
+            # Static obstacle segments
+            'static_obstacles': [
                 {
+                    'count': 2,                                                         # (*) Number of static obstacles represented by this segment
                     'obstacle_type': 'BOX',                                             # (*) Options: 'BOX'
-                    'obstacle_size': [1.0, 1.0, 1.0],                                   # (*) [X, Y, Z] [m] - Obstacle dimensions
+                    'obstacle_size': [0.1, 0.1, 0.1],                                   # (*) [x, y, z] [m] - Obstacle dimensions
                     'obstacle_observability': True,                                     # (*) Whether the obstacle pose is observable numerically
+                    'obstacle_min_distance_from_robot': 1.0,                            # (*) Minimum spawn distance from robots [m]
+                    'obstacle_material_color': [0.0, 1.0, 0.0, 1.0],                    # (*) [R, G, B, A]
+                },
+                {
+                    'count': 2,                                                         # (*) Number of static obstacles represented by this segment
+                    'obstacle_type': 'BOX',                                             # (*) Options: 'BOX'
+                    'obstacle_size': [0.2, 0.2, 0.1],                                   # (*) [x, y, z] [m] - Obstacle dimensions
+                    'obstacle_observability': True,                                     # (*) Whether the obstacle pose is observable numerically
+                    'obstacle_min_distance_from_robot': 1.0,                            # (*) Minimum spawn distance from robots [m]
+                    'obstacle_material_color': [0.0, 1.0, 0.0, 1.0],                    # (*) [R, G, B, A]
+                },
+                {
+                    'count': 2,                                                         # (*) Number of static obstacles represented by this segment
+                    'obstacle_type': 'BOX',                                             # (*) Options: 'BOX'
+                    'obstacle_size': [0.1, 0.3, 0.5],                                   # (*) [x, y, z] [m] - Obstacle dimensions
+                    'obstacle_observability': True,                                     # (*) Whether the obstacle pose is observable numerically
+                    'obstacle_min_distance_from_robot': 1.0,                            # (*) Minimum spawn distance from robots [m]
                     'obstacle_material_color': [0.0, 1.0, 0.0, 1.0],                    # (*) [R, G, B, A]
                 }
             ],
 
-            # Dynamic obstacles
-            'dynamic_obstacles': {
-                'dynamic_obstacle_count': 1,                                            # (*) Number of dynamic obstacles to spawn
-                'dynamic_obstacle_observability': True,                                 # (*) Whether to stream dynamic obstacle poses
-                'dynamic_obstacle_motion': 'Random',                                    # (*) Motion pattern: None | Random | Circle | Linear
-                'dynamic_obstacle_min_distance_from_robot': 1.6,                        # (*) Minimum spawn distance from the robot [m]
-                'max_linear_speed': 0.2,                                                # (*) Max linear speed for dynamic obstacle [m/s]
-                'max_angular_speed': 0.2,                                               # (*) Max angular speed for dynamic obstacle [rad/s]
-                'random_motion_change_period_seconds': 2.0,                             # (*) Period [s] to re-sample random motion commands
-                'linear_motion_cycle_seconds': 8.0,                                     # (*) Cycle period [s] for linear back-and-forth motion
-                'linear_motion_travel_speed': 0.1,                                      # (*) Translation speed [m/s] for linear motion
-                'circle_motion_travel_speed': 0.1,                                      # (*) Tangential speed [m/s] for circular motion
-                'circle_motion_curvature': -1.2,                                        # (*) Curvature of circle path; sign chooses rotation direction
-            },
+            # Dynamic obstacle segments
+            'dynamic_obstacles': [
+                {
+                    'count': 0,                                                         # (*) Number of dynamic obstacles represented by this segment
+                    'obstacle_model': 'SAFELOG_S2',                                     # (*) Dynamic obstacle model
+                    'obstacle_observability': True,                                     # (*) Whether to stream dynamic obstacle poses
+                    'obstacle_motion': 'Random',                                        # (*) Motion pattern: None | Random | Circle | Linear
+                    'obstacle_min_distance_from_robot': 1.0,                            # (*) Minimum spawn distance from the robot [m]
+                    'obstacle_max_linear_speed': 0.2,                                   # (*) Max linear speed for dynamic obstacle [m/s]
+                    'obstacle_max_angular_speed': 0.2,                                  # (*) Max angular speed for dynamic obstacle [rad/s]
+                    'random_motion_change_period_seconds': 2.0,                         # (*) Period [s] to re-sample random motion commands
+                    'linear_motion_cycle_seconds': 8.0,                                 # (*) Cycle period [s] for linear back-and-forth motion
+                    'linear_motion_travel_speed': 0.1,                                  # (*) Translation speed [m/s] for linear motion
+                    'circle_motion_travel_speed': 0.1,                                  # (*) Tangential speed [m/s] for circular motion
+                    'circle_motion_curvature': -1.2,                                    # (*) Curvature of circle path; sign chooses rotation direction
+                },
+            ],
         }
         return warehouse_dict
 
@@ -437,26 +553,22 @@ class Config:
             # Cameras pool
             'observation_cameras': [
                 {
-                    'camera_position': [0.0, 1.25, 1.3],                                # (*) [X, Y, Z] [m] in Unity coordinates
-                    'camera_rotation': [130.0, 0.0, 180.0],                             # (*) [RX, RY, RZ] [deg] in Unity coordinates
+                    'camera_position': [1.3, 0.0, 1.25],                                # (*) [x, y, z] [m]
+                    'camera_rotation': [-3.141592, 2.268928, 0.0],                      # (*) [rx, ry, rz] [rad]
                     'camera_vertical_fov': 45.0,                                        # (*) Camera's vertical field of view in degrees
-                }
+                },
+                {
+                    'camera_position': [0.0, 0.0, 12.0],                                # (*) [x, y, z] [m]
+                    'camera_rotation': [0.0, 1.570796, 0.0],                            # (*) [rx, ry, rz] [rad]
+                    'camera_vertical_fov': 45.0,                                        # (*) Camera's vertical field of view in degrees
+                },
             ],
 
             # Appearance/camera randomization
             'randomize_appearance': True,                                               # (*) Whether to randomize the lighting, the appearance of the environment (colors/viewpoint/background)
+            'randomize_robot_appearance': True,                                         # (*) Randomize robot body colors when randomize_appearance is enabled
             'camera_position_randomization_range_in_meters': 0.0,                       # (*) [m] - The range to use for uniform sampling when randomizing camera position around its default position
             'camera_rotation_randomization_range_in_degrees': 0.0,                      # (*) [deg] - The range to use for uniform sampling when randomizing camera rotation around its default rotation along each axis
-
-            # Laser scan (Warehouse)
-            'enable_laser_scan': True,                                                  # (*) Enable 2D laser scanner in the warehouse environment
-            'laser_scan': {
-                'range_meters_min': 0.12,                                               # (*) Minimum measurable laser range in meters
-                'range_meters_max': 100.0,                                              # (*) Maximum measurable laser range in meters
-                'scan_angle_start_degrees': 180.0,                                      # (*) Start angle of the scan sector in degrees
-                'scan_angle_end_degrees': -179.0,                                       # (*) End angle of the scan sector in degrees (clockwise)
-                'num_measurements_per_scan': 360.0,                                     # (*) Number of laser range samples per full scan (clockwise)
-            }
         }
 
 
@@ -475,7 +587,7 @@ if __name__ == "__main__":
 
     # Change the path if needed
     simulator_path = os.path.dirname(os.path.dirname(os.path.realpath(__file__))) + '/environment/simulator/'
-    simulator_version = 'v1.0.1'
+    simulator_version = 'v1.0.3'
     simulator_platform = 'Windows'  # 'Linux', 'Mac'
     xml_file = simulator_path + simulator_version + '/' + simulator_platform + '/configuration.xml'
 

@@ -1,6 +1,7 @@
 """
-A box generator class to spawn random boxes in the UNITY simulator
-It allows to define the range where the boxes will be spawned in the workspace of the robot
+A box generator class to spawn random boxes in the simulator.
+It allows to define the range where the boxes will be spawned in the workspace of the robot.
+All coordinates are in DART/ROS convention (right-handed, Z-up: x=forward, y=left, z=up).
 """
 
 import os
@@ -16,8 +17,8 @@ from pathlib import Path
 class RandomBoxesGenerator:
     def __init__(self, box_mode="train", box_samples=400, box_split=0.1, box_save_val=False, box_load_val=False,
                  box_radius_val=0.01, box_min_distance_base=0.475, box_max_distance_base=0.67, box_folder="./agent/logs/dataset/",
-                 box_x_min=-0.67, box_x_max=0.67, box_x_active=True, box_z_min=0.42, box_z_max=0.67, box_z_active=True, 
-                 box_ry_min=-np.inf, box_ry_max=np.inf, box_ry_active=False, box_debug=[0.48159, 0.05, 0.4406864, 0.0, 0.0, 0.0]):
+                 box_x_min=-0.67, box_x_max=0.67, box_x_active=True, box_y_min=0.42, box_y_max=0.67, box_y_active=True, 
+                 box_rz_min=-np.inf, box_rz_max=np.inf, box_rz_active=False, box_debug=[0.4406864, -0.48159, 0.05, 0.0, 0.0, 0.0]):
 
         self.box_mode = box_mode                            # Train, test, debug
         self.box_samples = box_samples
@@ -40,22 +41,22 @@ class RandomBoxesGenerator:
         self.box_x_min = box_x_min
         self.box_x_max = box_x_max
         self.box_x_active = box_x_active
-        self.box_z_min = box_z_min
-        self.box_z_max = box_z_max
-        self.box_z_active = box_z_active
-        self.box_ry_min = box_ry_min
-        self.box_ry_max = box_ry_max
-        self.box_ry_active = box_ry_active
+        self.box_y_min = box_y_min
+        self.box_y_max = box_y_max
+        self.box_y_active = box_y_active
+        self.box_rz_min = box_rz_min
+        self.box_rz_max = box_rz_max
+        self.box_rz_active = box_rz_active
 
         ######################
         # Set-up the Dataset #
         ######################
 
         # Train split #
-        self.objects_X, self.objects_Y, self.objects_Z, self.objects_RY = [], [], [], []
+        self.objects_X, self.objects_Y, self.objects_Z, self.objects_RZ = [], [], [], []
 
         # Val split #
-        self.objects_X_val, self.objects_Y_val, self.objects_Z_val, self.objects_RY_val = [], [], [], []
+        self.objects_X_val, self.objects_Y_val, self.objects_Z_val, self.objects_RZ_val = [], [], [], []
 
         # Create the directory to save the dataset #
         Path(self.box_folder).mkdir(parents=True, exist_ok=True)
@@ -73,17 +74,17 @@ class RandomBoxesGenerator:
 
         # Generate always a random train set #
         for i in range(self.box_samples):
-            X, Y, Z, _, RY, _ = self._get_samples(self.objects_X_val, self.objects_Z_val)
+            X, Y, Z, _, _, RZ = self._get_samples(self.objects_X_val, self.objects_Z_val)
 
             self.objects_X.append(X)
             self.objects_Y.append(Y)
             self.objects_Z.append(Z)
-            self.objects_RY.append(RY)
+            self.objects_RZ.append(RZ)
 
         self.objects_X_train = self.objects_X[:self.train_size]
         self.objects_Y_train = self.objects_Y[:self.train_size]
         self.objects_Z_train = self.objects_Z[:self.train_size]
-        self.objects_RY_train = self.objects_RY[:self.train_size]
+        self.objects_RZ_train = self.objects_RZ[:self.train_size]
 
         # Load validation boxes #
         if (self.box_load_val == True): 
@@ -92,7 +93,7 @@ class RandomBoxesGenerator:
             self.objects_X_val = self.objects_X[self.train_size:]
             self.objects_Y_val = self.objects_Y[self.train_size:]
             self.objects_Z_val = self.objects_Z[self.train_size:]
-            self.objects_RY_val = self.objects_RY[self.train_size:]
+            self.objects_RZ_val = self.objects_RZ[self.train_size:]
 
         # Save the box dataset #
         if (self.box_save_val == True):
@@ -102,13 +103,14 @@ class RandomBoxesGenerator:
         """
             return the next box from the dataset
 
-            :return: x, y, z, 0, ry, 0 box coords - in unity coords system - orientation in degrees
+            :return: x, y, z, rx, ry, rz box coords — ROS convention (x=forward, y=left, z=height),
+                     orientation in radians (rz = yaw around Z-up axis)
         """
 
         if (self.box_mode == "train"):
             box = [
                 self.objects_X_train[self.index_train], self.objects_Y_train[self.index_train],
-                self.objects_Z_train[self.index_train], 0.0, self.objects_RY_train[self.index_train], 0.0
+                self.objects_Z_train[self.index_train], 0.0, 0.0, self.objects_RZ_train[self.index_train]
             ]
 
             self.index_train += 1
@@ -118,7 +120,7 @@ class RandomBoxesGenerator:
         elif (self.box_mode == "val"):
             box = [
                 self.objects_X_val[self.index_val], self.objects_Y_val[self.index_val],
-                self.objects_Z_val[self.index_val], 0.0,  self.objects_RY_val[self.index_val], 0.0
+                self.objects_Z_val[self.index_val], 0.0, 0.0, self.objects_RZ_val[self.index_val]
             ]
 
             self.index_val += 1
@@ -144,12 +146,12 @@ class RandomBoxesGenerator:
             self.objects_X_val.append(box[0])
             self.objects_Y_val.append(box[1])
             self.objects_Z_val.append(box[2])
-            self.objects_RY_val.append(box[3])
+            self.objects_RZ_val.append(box[3])
 
         self.objects_X_val = np.asarray(self.objects_X_val)
         self.objects_Y_val = np.asarray(self.objects_Y_val)
         self.objects_Z_val = np.asarray(self.objects_Z_val)
-        self.objects_RY_val = np.asarray(self.objects_Z_val)
+        self.objects_RZ_val = np.asarray(self.objects_RZ_val)
 
         self.val_size = len(self.objects_X_val)
 
@@ -161,7 +163,8 @@ class RandomBoxesGenerator:
 
             :param objects_X_val: x validation boxes coords
 
-            :return: x, y, z, 0, ry, 0 box coords - in unity coords system - orientation in degrees
+            :return: x, y, z, 0, 0, rz box coords — ROS convention (x=forward, y=left, z=height),
+                     orientation in radians (rz = yaw around Z-up axis)
         """
         while True:
             if(self.box_x_active):
@@ -169,24 +172,24 @@ class RandomBoxesGenerator:
             else:
                 X = 0
 
-            Y = 0.05 # Hard-coded box height. Adapt to your task
-
-            if(self.box_z_active):
-                Z = np.random.uniform(self.box_z_min, self.box_z_max, size=1)[0]
+            if(self.box_y_active):
+                Y = np.random.uniform(self.box_y_min, self.box_y_max, size=1)[0]
             else:
-                Z = 0
+                Y = 0
 
-            if(self.box_ry_active):
-                RY = np.random.uniform(self.box_ry_min, self.box_ry_max, size=1)[0]
+            Z = 0.05 # Hard-coded box height above ground. Adapt to your task
+
+            if(self.box_rz_active):
+                RZ = np.random.uniform(self.box_rz_min, self.box_rz_max, size=1)[0]
             else:
-                RY = 0
+                RZ = 0
 
-            distance_to_base = np.sqrt(X**2 + Z**2)
+            distance_to_base = np.sqrt(X**2 + Y**2)
             if (distance_to_base > self.box_min_distance_base and distance_to_base < self.box_max_distance_base):
 
                 # Train boxes must be far apart from the validation boxes #
                 if(self.box_radius_val >= 0.001):                         # Threshold is active 
-                    point_set = np.asarray([[X, Z]])                      # Current generated box
+                    point_set = np.asarray([[X, Y]])                      # Current generated box
 
                     # Calculate the distances to all other validation boxes from the generated box #
                     dist_radius = scipy.spatial.distance.cdist(self.val_set, point_set, 'euclidean')
@@ -200,12 +203,12 @@ class RandomBoxesGenerator:
                     if violation: # Box too close to a validation box - spawn another box
                         continue
 
-                return X, Y, Z, 0.0, RY, 0.0
+                return X, Y, Z, 0.0, 0.0, RZ
 
     def _save_dataset(self):
         """
             save the generated dataset:
-                - .txt formant: x,y,z,ry
+                - .txt format: x,y,z,rz
                 - saves also some .png plots
         """
 
@@ -214,20 +217,20 @@ class RandomBoxesGenerator:
         x_np_train = x_np_train.reshape(x_np_train.shape[0], 1)
         z_np_train = np.asarray(self.objects_Z_train)
         z_np_train = z_np_train.reshape(z_np_train.shape[0], 1)
-        ry_np_train = np.asarray(self.objects_RY_train)
-        ry_np_train = ry_np_train.reshape(ry_np_train.shape[0], 1)
+        rz_np_train = np.asarray(self.objects_RZ_train)
+        rz_np_train = rz_np_train.reshape(rz_np_train.shape[0], 1)
         y_np_train = np.ones_like(x_np_train) * 0.05
-        train_data = np.concatenate((x_np_train, y_np_train, z_np_train, ry_np_train), axis=1)
+        train_data = np.concatenate((x_np_train, y_np_train, z_np_train, rz_np_train), axis=1)
 
         # Val split #
         x_np_val = np.asarray(self.objects_X_val)
         x_np_val = x_np_val.reshape(x_np_val.shape[0], 1)
         z_np_val = np.asarray(self.objects_Z_val)
         z_np_val = z_np_val.reshape(z_np_val.shape[0], 1)
-        ry_np_val = np.asarray(self.objects_RY_val)
-        ry_np_val = ry_np_val.reshape(ry_np_val.shape[0], 1)
+        rz_np_val = np.asarray(self.objects_RZ_val)
+        rz_np_val = rz_np_val.reshape(rz_np_val.shape[0], 1)
         y_np_val = np.ones_like(x_np_val) * 0.05
-        val_data = np.concatenate((x_np_val, y_np_val, z_np_val, ry_np_val), axis=1)
+        val_data = np.concatenate((x_np_val, y_np_val, z_np_val, rz_np_val), axis=1)
 
         # Save to .txt files #
         np.savetxt(os.path.join(self.box_folder, "train_data.txt"), train_data, delimiter=",")
@@ -249,29 +252,29 @@ class RandomBoxesGenerator:
         plt.title("dataset")
         plt.savefig(os.path.join(self.box_folder, 'box_dataset_x_z_axis.png'))
 
-        # ry - y coords #
+        # rz - y coords #
         fig = plt.figure()
         ax1 = fig.add_subplot(111)
 
         # Adapt box height to your task #
-        ax1.scatter(ry_np_train, 0.05 * np.ones_like(ry_np_train), s=10, c='b', marker="s", label='train')
-        ax1.scatter(ry_np_val, 0.05 * np.ones_like(ry_np_val), s=10, c='r', marker="o", label='val')
+        ax1.scatter(rz_np_train, 0.05 * np.ones_like(rz_np_train), s=10, c='b', marker="s", label='train')
+        ax1.scatter(rz_np_val, 0.05 * np.ones_like(rz_np_val), s=10, c='r', marker="o", label='val')
         plt.legend(loc='upper left')
-        plt.xlabel("ry (deg)")
+        plt.xlabel("rz (rad)")
         plt.ylabel("y")
         plt.title("dataset")
-        plt.savefig(os.path.join(self.box_folder, 'box_dataset_ry_y_axis.png'))
+        plt.savefig(os.path.join(self.box_folder, 'box_dataset_rz_y_axis.png'))
 
-        # x - z - ry coords #
+        # x - z - rz coords #
         fig = plt.figure()
         ax1 = fig.add_subplot(111, projection='3d')
 
-        ax1.scatter(x_np_train, z_np_train, ry_np_train, s=10, c='b', marker="s", label='train')
-        ax1.scatter(x_np_val, z_np_val, ry_np_val, s=10, c='r', marker="o", label='val')
+        ax1.scatter(x_np_train, z_np_train, rz_np_train, s=10, c='b', marker="s", label='train')
+        ax1.scatter(x_np_val, z_np_val, rz_np_val, s=10, c='r', marker="o", label='val')
         plt.legend(loc='upper left')
         ax1.set_xlabel("x")
         ax1.set_ylabel("z")
-        ax1.set_zlabel("ry (deg)")
+        ax1.set_zlabel("rz (rad)")
 
         plt.title("dataset")
         plt.savefig(os.path.join(self.box_folder, 'box_dataset.png'))

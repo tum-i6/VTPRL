@@ -8,13 +8,13 @@ The Unity interface receives joint velocities as commands and returns joint posi
 DART is used to calculate inverse kinematics of the iiwa chain.
 DART changes the agent action space from the joint space to the cartesian space (position-only or pose/SE(3)) of the end-effector.
 
-Notes: - Coordinates in the Unity simulator are different from the ones in DART which used here:
-         The mapping is [X, Y, Z] of Unity is [-y, z, x] of DART
+Notes: - All data exchanged with Unity is now in DART/ROS convention (x=forward, y=left, z=up).
+         Coordinate conversions are handled entirely on the Unity (C#) side.
        - In numerical planar grasping envs, a P-controller (agent controller) keeps fixed the uncontrolled DoF during the episode. E.g. height of the ee
        - At the end of the episode, manual actions help the agent to grasp the box
          In that case, the P-controller (manual_actions controller) does not correct the controlled DoF by the RL agent. It keeps them fixed. E.g. rotation of the ee
          see simulator_vec_env.py for more details
-       - gym functions use UNITY coordinates - e.g. get_state(), get_reward()
+       - gym functions use DART/ROS coordinates - e.g. get_state(), get_reward()
 """
 
 import numpy as np
@@ -25,6 +25,7 @@ import dartpy as dart
 from gym import spaces
 
 from envs.iiwa_sample_env import IiwaSampleEnv
+from utils.config_utils import transform_local_pose_to_world
 
 class IiwaNumericalPlanarGraspingEnv(IiwaSampleEnv):
     def __init__(self, max_ts, orientation_control, use_ik, ik_by_sns, state_type, enable_render=False,
@@ -32,7 +33,7 @@ class IiwaNumericalPlanarGraspingEnv(IiwaSampleEnv):
                  joints_safety_limit=10, max_joint_vel=20, max_ee_cart_vel=0.035, max_ee_cart_acc =10, max_ee_rot_vel=0.15, max_ee_rot_acc=10,
                  random_initial_joint_positions=False, initial_positions=[0, 0, 0, -np.pi/2, 0, np.pi/2, np.pi/2], noise_enable_rl_obs=False, noise_rl_obs_ratio=0.05,
                  reward_dict=None, agent_kp=0.5, agent_kpr=1.5,
-                 robotic_tool=None, end_effector_model=None, env_id=0):
+                 robotic_tool=None, end_effector_model=None, manipulator_config=None, manipulator_gym_config=None, env_id=0):
 
         # Backward/forward compatibility: map end_effector_model to legacy robotic_tool if not provided
         if robotic_tool is None:
@@ -64,15 +65,16 @@ class IiwaNumericalPlanarGraspingEnv(IiwaSampleEnv):
 
         # the init of the parent class should be always called, this will in the end call reset() once
         super().__init__(max_ts=max_ts, orientation_control=orientation_control, use_ik=use_ik, ik_by_sns=ik_by_sns, state_type=state_type, enable_render=enable_render,
-                         with_objects=with_objects, target_mode=target_mode, goal_type=goal_type, joints_safety_limit=joints_safety_limit, max_joint_vel=max_joint_vel, max_ee_cart_vel=max_ee_cart_vel,
-                         max_ee_cart_acc=max_ee_cart_acc, max_ee_rot_vel=max_ee_rot_vel, max_ee_rot_acc=max_ee_rot_acc, random_initial_joint_positions=random_initial_joint_positions, initial_positions=initial_positions,
-                         robotic_tool=robotic_tool, env_id=env_id)
+                        with_objects=with_objects, target_mode=target_mode, goal_type=goal_type, joints_safety_limit=joints_safety_limit, max_joint_vel=max_joint_vel, max_ee_cart_vel=max_ee_cart_vel,
+                        max_ee_cart_acc=max_ee_cart_acc, max_ee_rot_vel=max_ee_rot_vel, max_ee_rot_acc=max_ee_rot_acc, random_initial_joint_positions=random_initial_joint_positions, initial_positions=initial_positions,
+                        robotic_tool=robotic_tool, manipulator_config=manipulator_config, manipulator_gym_config=manipulator_gym_config, env_id=env_id)
 
         # Box dataset to spawn boxes #
         self.randomBoxesGenerator = randomBoxesGenerator
 
-        # Keep object initial pose. Easier calculations for rotations - box does not moved during the planar episode #
-        self.init_object_pose_unity = None
+        # Keep object initial pose. Easier calculations for rotations - box does not move during the planar episode #
+        self.init_object_pose = None
+        self.init_object_pose_per_robot = [None] * self.robot_count
 
         ###################################################################
         # Reward related                                                  #
@@ -86,15 +88,19 @@ class IiwaNumericalPlanarGraspingEnv(IiwaSampleEnv):
         self.reward_x_weight = reward_dict["reward_x_weight"]
         self.reward_x_norm_const = reward_dict["reward_x_norm_const"]
 
-        self.reward_z_weight = reward_dict["reward_z_weight"]
-        self.reward_z_norm_const = reward_dict["reward_z_norm_const"]
+        self.reward_y_weight = reward_dict["reward_y_weight"]
+        self.reward_y_norm_const = reward_dict["reward_y_norm_const"]
 
         self.collision_flag = False                                          # Give collision reward one once per episode
 
         # Save previous distance ee/box for calculting the displacements - see reward definition #
-        self.prev_dist_ee_box_z = np.inf
         self.prev_dist_ee_box_x = np.inf
-        self.prev_dist_ee_boxry = np.inf
+        self.prev_dist_ee_box_y = np.inf
+        self.prev_dist_ee_box_rz = np.inf
+        self.prev_dist_ee_box_x_per_robot = [np.inf] * self.robot_count
+        self.prev_dist_ee_box_y_per_robot = [np.inf] * self.robot_count
+        self.prev_dist_ee_box_rz_per_robot = [np.inf] * self.robot_count
+        self._per_robot_success = [False] * self.robot_count
         ###################################################################
 
         ###################################################################
@@ -137,7 +143,7 @@ class IiwaNumericalPlanarGraspingEnv(IiwaSampleEnv):
             # Gym-related #
             ###############
 
-            # X, and Z in unity - no rotation #
+            # x (forward), y (lateral) in ROS - no rotation #
             self.action_space_dimension = 2
             self.observation_space_dimension = 9
 
@@ -160,7 +166,7 @@ class IiwaNumericalPlanarGraspingEnv(IiwaSampleEnv):
             # Gym-related #
             ###############
 
-            # X, Y, and RY in unity #
+            # x (forward), y (lateral), rz (yaw) in ROS #
             self.action_space_dimension = 3
             self.observation_space_dimension = 10
 
@@ -176,9 +182,17 @@ class IiwaNumericalPlanarGraspingEnv(IiwaSampleEnv):
         #####################
         # Define gym spaces #
         #####################
-        self.action_space = spaces.Box(-np.ones(self.action_space_dimension), np.ones(self.action_space_dimension), dtype=np.float32)
+        self.action_space = spaces.Box(
+            low=-np.ones((self.robot_count, self.action_space_dimension), dtype=np.float32),
+            high=np.ones((self.robot_count, self.action_space_dimension), dtype=np.float32),
+            dtype=np.float32,
+        )
 
-        self.observation_space = spaces.Box(-np.ones(self.observation_space_dimension), np.ones(self.observation_space_dimension), dtype=np.float32)
+        self.observation_space = spaces.Box(
+            low=-np.ones(self.observation_space_dimension * self.robot_count, dtype=np.float32),
+            high=np.ones(self.observation_space_dimension * self.robot_count, dtype=np.float32),
+            dtype=np.float32,
+        )
 
     def _update_env_flags(self):
         # Collision or joints limits overpassed                                       #
@@ -189,32 +203,32 @@ class IiwaNumericalPlanarGraspingEnv(IiwaSampleEnv):
     def get_state(self):
         """
             defines the environment state:
-                Format: [x_error, y_error, ry_error, j1, .., j7] normalized in [-1, 1]
-                        - error from the target pose: ee to the target box (x, y, ry axis)
+                Format: [x_error, y_error, rz_error, j1, .., j7] normalized in [-1, 1]
+                        - error from the target pose: ee to the target box (x, y, rz axis)
                         - joints positions
-                        - unity coords system
+                        - ROS/DART coords system
 
-                Note: if ry rotation is not controlled by the RL agent, then the state will not include the ry_error part
+                Note: if rz rotation is not controlled by the RL agent, then the state will not include the rz_error part
 
            :return: observation state for the policy training.
         """
         state = np.empty(0)
-        if(self.init_object_pose_unity == None):
+        if(self.init_object_pose == None):
             return state
 
-        # Relative position normalized errors of ee to the box #
-        dx_ee_b, dz_ee_b = self.get_error_ee_box_x_z_normalized_unity()
+        # Relative position normalized errors of ee to the box (ROS: x=forward, y=lateral) #
+        dx_ee_b, dy_ee_b = self.get_error_ee_box_x_y_normalized()
 
         # Add to state #
-        state = np.append(state, np.array([dx_ee_b, dz_ee_b]))
+        state = np.append(state, np.array([dx_ee_b, dy_ee_b]))
 
         # Rotation control is active #
         if(self.action_space_dimension == 3):
-            # Normalized rotation error - y axis #
-            dry_ee_b = self.get_error_ee_box_ry_normalized_unity()
+            # Normalized yaw (rz) rotation error #
+            drz_ee_b = self.get_error_ee_box_rz_normalized()
 
             # Add to state #
-            state = np.append(state, np.array([dry_ee_b]))
+            state = np.append(state, np.array([drz_ee_b]))
 
         # Get joints positions #
         joint_positions = self.dart_sim.chain_get_positions()
@@ -266,10 +280,7 @@ class IiwaNumericalPlanarGraspingEnv(IiwaSampleEnv):
 
            :return: a boolean value representing if the box is in the air (True means success)
         """
-        if(self.get_object_height_unity() >= self.reward_height_goal and self.collided_env != 1):
-            return True
-
-        return False
+        return bool(any(self._per_robot_success))
 
     def get_terminal(self):
         """
@@ -295,73 +306,108 @@ class IiwaNumericalPlanarGraspingEnv(IiwaSampleEnv):
 
            :return: the command to send to the Unity simulator including joint velocities and gripper position
         """
-        #################
-        # Unity in DART #
-        # Yu = Zd       #
-        # Xu = -Yd      #
-        # Zu = Xd       #
-        #################
 
-        ##############################################################################
-        # Reset the P-controller - save the initial pose of the manipulator          #
-        # for moving in a planar manner during the episode e.g. keep the same height #
-        ##############################################################################
-        if (self.time_step == 1):
-            self.reset_agent_p_controller()
-
-        # the lines below should stay as it is
-        self.action_state = action
-        env_action = np.clip(action, -1., 1.)
-
-        # Rotation is controlled by the RL-agent
-        if(self.action_space_dimension == 3):
-            task_vel = np.zeros(3)
+        act = np.asarray(action, dtype=np.float32)
+        if act.ndim == 1:
+            if act.size != self.action_space_dimension:
+                raise ValueError(f"Expected action dim {self.action_space_dimension}, got {act.size}.")
+            if self.robot_count > 1:
+                act = np.tile(act.reshape(1, -1), (self.robot_count, 1))
+            else:
+                act = act.reshape(1, -1)
+        elif act.ndim == 2:
+            if act.shape[1] != self.action_space_dimension:
+                raise ValueError(f"Expected per-robot action dim {self.action_space_dimension}, got {act.shape[1]}.")
+            if act.shape[0] != self.robot_count:
+                raise ValueError(f"Expected {self.robot_count} robot action rows, got {act.shape[0]}.")
         else:
-            task_vel = np.zeros(2)
+            raise ValueError(f"Unsupported action shape {act.shape}.")
 
-        ###################################################################
-        # The RL agent controls the x, y and rotational z-axis (optional) #
-        ###################################################################
+        self.action_state = act
+        env_actions = np.clip(act, self.action_space.low, self.action_space.high)
 
-        ##################################################################################
-        # Calculate the errors for the P-controller. Axis not controlled by the RL-agent #
-        # Important: P-controller expects dart coordinates                               #
-        ##################################################################################
-        _, ee_y, _ = self.get_ee_pos_unity()
-        z_diff = self.target_z_dart - ee_y                                                                    # Height 
-        curr_quat = self.get_rot_ee_quat()                                                                    # Current orientation of the ee in quaternions
-        rx_diff, ry_diff, rz_diff = self.get_rot_error_from_quaternions(self.target_rot_quat_dart, curr_quat) # Orientation error from the target pose
-        ################################################################################################
+        latest_payload = getattr(self, '_latest_observation_payload', None)
+        robots_payload = latest_payload.get('Robots', []) if isinstance(latest_payload, dict) else []
+        robots_by_index = {}
+        if isinstance(robots_payload, list):
+            for list_idx, payload in enumerate(robots_payload):
+                if not isinstance(payload, dict):
+                    continue
+                try:
+                    ridx = int(payload.get('RobotIndex', list_idx))
+                except Exception:
+                    ridx = list_idx
+                if ridx not in robots_by_index:
+                    robots_by_index[ridx] = payload
 
-        if(self.action_space_dimension == 3): # Rotation is active - 3DoF control by the RL agent
-            task_vel[0] = self.MAX_EE_VEL[2] * env_action[0]
-            task_vel[1] = self.MAX_EE_VEL[3] * env_action[1]
-            task_vel[2] = self.MAX_EE_VEL[4] * env_action[2]
+        unity_actions = []
+        for ridx in range(self.robot_count):
+            payload = robots_by_index.get(ridx)
+            if payload is None and ridx < len(robots_payload):
+                candidate = robots_payload[ridx]
+                if isinstance(candidate, dict):
+                    payload = candidate
+            if payload is not None and isinstance(latest_payload, dict):
+                self._unity_retrieve_observation_numeric(payload, latest_payload, robot_index=ridx)
+                self._update_dart_chain()
 
-            ######################################################################################
-            # P-controller + inverse kinematics                                                  #
-            #   - The DoF that are controlled by the RL-agent are unaffected by the P-controller #
-            #   - see config_p_controller dictionary                                             #                        
-            ######################################################################################
-            joint_vel = self.action_by_p_controller_custom(rx_diff, ry_diff, task_vel[0],
-                                                           task_vel[1], task_vel[2], z_diff,
-                                                           self.agent_kpr, self.agent_kp,
-                                                           self.config_p_controller)
-        else: # Rotation is not active - 2DoF control by the RL agent
-            task_vel[0] = self.MAX_EE_VEL[3] * env_action[0]
-            task_vel[1] = self.MAX_EE_VEL[4] * env_action[1]
+            if isinstance(self.init_object_pose_per_robot, list) and ridx < len(self.init_object_pose_per_robot):
+                self.init_object_pose = self.init_object_pose_per_robot[ridx]
 
-            joint_vel = self.action_by_p_controller_custom(rx_diff, ry_diff, rz_diff,
-                                                           task_vel[0], task_vel[1], z_diff,
-                                                           self.agent_kpr, self.agent_kp,
-                                                           self.config_p_controller)
+            ##############################################################################
+            # Reset the P-controller - save the initial pose of the manipulator          #
+            # for moving in a planar manner during the episode e.g. keep the same height #
+            ##############################################################################
+            if self.time_step == 1:
+                self.reset_agent_p_controller()
 
-        ##########################################################################################
-        # Gripper is not controlled via the RL-agent - manual actions - see simulator_vec_env.py # 
-        ##########################################################################################
-        unity_action = np.append(joint_vel, [float(0.0)])
+            env_action = env_actions[ridx]
 
-        return unity_action
+            # Rotation is controlled by the RL-agent
+            task_vel = np.zeros(3 if self.action_space_dimension == 3 else 2)
+
+            ###################################################################
+            # The RL agent controls the x, y and rotational z-axis (optional) #
+            ###################################################################
+
+            ##################################################################################
+            # Calculate the errors for the P-controller. Axis not controlled by the RL-agent #
+            # Important: P-controller expects dart coordinates                               #
+            ##################################################################################
+            ee_height = self.get_ee_pos()[2]  # ROS z = height
+            z_diff = self.target_z_dart - ee_height                                                               # Height 
+            curr_quat = self.get_rot_ee_quat()                                                                    # Current orientation of the ee in quaternions
+            rx_diff, ry_diff, rz_diff = self.get_rot_error_from_quaternions(self.target_rot_quat_dart, curr_quat) # Orientation error from the target pose
+            ################################################################################################
+
+            if self.action_space_dimension == 3: # Rotation is active - 3DoF control by the RL agent
+                task_vel[0] = self.MAX_EE_VEL[2] * env_action[0]
+                task_vel[1] = self.MAX_EE_VEL[3] * env_action[1]
+                task_vel[2] = self.MAX_EE_VEL[4] * env_action[2]
+
+                ######################################################################################
+                # P-controller + inverse kinematics                                                  #
+                #   - The DoF that are controlled by the RL-agent are unaffected by the P-controller #
+                #   - see config_p_controller dictionary                                             #                        
+                ######################################################################################
+                joint_vel = self.action_by_p_controller_custom(
+                    rx_diff, ry_diff, task_vel[0], task_vel[1], task_vel[2], z_diff,
+                    self.agent_kpr, self.agent_kp, self.config_p_controller
+                )
+            else: # Rotation is not active - 2DoF control by the RL agent
+                task_vel[0] = self.MAX_EE_VEL[3] * env_action[0]
+                task_vel[1] = self.MAX_EE_VEL[4] * env_action[1]
+                joint_vel = self.action_by_p_controller_custom(
+                    rx_diff, ry_diff, rz_diff, task_vel[0], task_vel[1], z_diff,
+                    self.agent_kpr, self.agent_kp, self.config_p_controller
+                )
+
+            ##########################################################################################
+            # Gripper is not controlled via the RL-agent - manual actions - see simulator_vec_env.py # 
+            ##########################################################################################
+            unity_actions.append(np.append(joint_vel, [float(0.0)]))
+
+        return np.asarray(unity_actions, dtype=np.float32)
 
     def update(self, observation, time_step_update=True):
         """
@@ -388,29 +434,83 @@ class IiwaNumericalPlanarGraspingEnv(IiwaSampleEnv):
             :return: The state, reward, episode termination flag (done), and an empty info dictionary
         """
 
-        self.current_obs = observation['Observation']
+        self._latest_observation_payload = observation if isinstance(observation, dict) else None
 
-        # the methods below handles synchronizing states of the DART kinematic chain with the observation from Unity
-        # hence it should be always called
-        self._unity_retrieve_observation_numeric(observation['Observation'])
-        self._update_dart_chain()
-        self._update_env_flags()
+        robots = observation.get('Robots', []) if isinstance(observation, dict) else []
+        if not robots:
+            raise ValueError("Unity observation payload missing 'Robots'.")
+        if len(robots) != self.robot_count:
+            raise ValueError(f"Robot payload count mismatch: expected {self.robot_count}, got {len(robots)}.")
 
-        # Class attributes below exist in the parent class, hence the names should not be changed
+        robots_by_index = {}
+        for list_idx, payload in enumerate(robots):
+            if not isinstance(payload, dict):
+                continue
+            try:
+                ridx = int(payload.get('RobotIndex', list_idx))
+            except Exception:
+                ridx = list_idx
+            if ridx not in robots_by_index:
+                robots_by_index[ridx] = payload
+
+        per_robot_states = []
+        per_robot_rewards = []
+        per_robot_success = []
+
+        for ridx in range(self.robot_count):
+            payload = robots_by_index.get(ridx)
+            if payload is None and ridx < len(robots):
+                candidate = robots[ridx]
+                if isinstance(candidate, dict):
+                    payload = candidate
+            if payload is None:
+                raise ValueError(f"Missing robot payload for robot index {ridx}.")
+
+            self.current_obs = payload.get('Numeric', {}) if isinstance(payload, dict) else {}
+
+            # the methods below handles synchronizing states of the DART kinematic chain with the observation from Unity
+            # hence it should be always called
+            self._unity_retrieve_observation_numeric(payload, observation, robot_index=ridx)
+            self._update_dart_chain()
+            self._update_env_flags()
+
+            if isinstance(self.init_object_pose_per_robot, list) and ridx < len(self.init_object_pose_per_robot):
+                self.init_object_pose = self.init_object_pose_per_robot[ridx]
+
+            self.prev_dist_ee_box_x = self.prev_dist_ee_box_x_per_robot[ridx]
+            self.prev_dist_ee_box_y = self.prev_dist_ee_box_y_per_robot[ridx]
+            self.prev_dist_ee_box_rz = self.prev_dist_ee_box_rz_per_robot[ridx]
+
+            state_i = self.get_state()
+            action_i = self.action_state[ridx] if isinstance(self.action_state, np.ndarray) and self.action_state.ndim == 2 else self.action_state
+            reward_i = self.get_reward(action_i)
+
+            self.prev_dist_ee_box_x = self.get_relative_distance_ee_box_x()   # forward distance (ROS x)
+            self.prev_dist_ee_box_y = self.get_relative_distance_ee_box_y()   # lateral distance (ROS y)
+            self.prev_dist_ee_box_rz = self.get_relative_distance_ee_box_rz()  # yaw distance (ROS rz)
+            self.prev_dist_ee_box_x_per_robot[ridx] = self.prev_dist_ee_box_x
+            self.prev_dist_ee_box_y_per_robot[ridx] = self.prev_dist_ee_box_y
+            self.prev_dist_ee_box_rz_per_robot[ridx] = self.prev_dist_ee_box_rz
+
+            success_i = bool(self.get_object_height() >= self.reward_height_goal and self.collided_env != 1)
+            per_robot_success.append(success_i)
+            per_robot_states.append(np.asarray(state_i, dtype=np.float32))
+            per_robot_rewards.append(float(reward_i))
+
         if(time_step_update == True):
             self.time_step += 1
 
-        self._state = self.get_state()
-        self._reward = self.get_reward(self.action_state)
+        self._state = np.concatenate(per_robot_states, axis=0) if per_robot_states else np.zeros(self.observation_space.shape, dtype=np.float32)
+        self._reward = float(np.sum(per_robot_rewards))
         self._done = bool(self.get_terminal())
-        self._info = {"success": False}                   # Episode was successful. It is set at simulator_vec_env.py before reseting
+        self._per_robot_success = per_robot_success
+        self._info = {
+            "success": bool(any(per_robot_success)),
+            "robot_count": self.robot_count,
+            "per_robot_rewards": per_robot_rewards,
+        }
 
-        # Keep track the previous distance of the ee to the box - used in the reward function #
-        self.prev_dist_ee_box_z = self.get_relative_distance_ee_box_z_unity()
-        self.prev_dist_ee_box_x = self.get_relative_distance_ee_box_x_unity()
-        self.prev_dist_ee_box_ry = self.get_relative_distance_ee_box_ry_unity() 
-
-        self.prev_action = self.action_state
+        self.prev_action = np.array(self.action_state, copy=True)
 
         return self._state, self._reward, self._done, self._info
 
@@ -428,8 +528,11 @@ class IiwaNumericalPlanarGraspingEnv(IiwaSampleEnv):
         ############################################################
         # Spawn the next box and fix the target (for task monitor) #
         ############################################################
-        object_X, object_Y, object_Z, object_RX, object_RY, object_RZ = self.randomBoxesGenerator()
-        self.init_object_pose_unity = [object_X, object_Y, object_Z, object_RX, object_RY, object_RZ]
+        self.init_object_pose_per_robot = []
+        for _ in range(self.robot_count):
+            object_X, object_Y, object_Z, object_RX, object_RY, object_RZ = self.randomBoxesGenerator()
+            self.init_object_pose_per_robot.append([object_X, object_Y, object_Z, object_RX, object_RY, object_RZ])
+        self.init_object_pose = self.init_object_pose_per_robot[0] if self.init_object_pose_per_robot else None
 
         ################################################################################################
         # Align the target with the box. This is done for visualization purposes for the dart viewer   #
@@ -438,19 +541,40 @@ class IiwaNumericalPlanarGraspingEnv(IiwaSampleEnv):
         # is used in vision-based envs -> adapt                                                        #
         ################################################################################################
 
-        # Align with the box
-        target_object_X, target_object_Y, target_object_Z = self.init_object_pose_unity[0], self.init_object_pose_unity[1], self.init_object_pose_unity[2]
+        target_positions_mapped = []
+        object_positions_mapped = []
+        for ridx in range(self.robot_count):
+            self.init_object_pose = self.init_object_pose_per_robot[ridx]
 
-        # Note in the dart viewer the ee at the goal is more up as we assume that we have a gripper (urdf) but the gripper is not #
-        # yet visualized in the viewer. The self.dart_sim.get_pos_distance() returns 0 correctly at the goal                      #
-        tool_length = 0.0 
-        target_object_RX, target_object_RY, target_object_RZ = self.get_box_rotation_in_target_dart_coords_angle_axis()
-        target = [target_object_RX, target_object_RY, target_object_RZ, target_object_Z, -target_object_X, target_object_Y + tool_length]
+            # Object position in ROS convention (x=forward, y=left, z=height)
+            target_object_X, target_object_Y, target_object_Z = self.init_object_pose[0], self.init_object_pose[1], self.init_object_pose[2]
 
-        # sets the initial reaching target for the current episode,
-        # should be always called in the beginning of each episode,
-        # you might need to call it even during the episode run to change the reaching target for the IK-P controller
-        self.set_target(target)
+            # Note in the dart viewer the ee at the goal is more up as we assume that we have a gripper (urdf) but the gripper is not #
+            # yet visualized in the viewer. The self.dart_sim.get_pos_distance() returns 0 correctly at the goal                      #
+            tool_length = 0.0
+            target_object_RX, target_object_RY, target_object_RZ = self.get_box_rotation_in_target_dart_coords_angle_axis()
+            # DART target: [rx, ry, rz, x, y, z] — same axis convention as ROS
+            target = [target_object_RX, target_object_RY, target_object_RZ, target_object_X, target_object_Y, target_object_Z + tool_length]
+
+            # sets the initial reaching target for the current episode,
+            # should be always called in the beginning of each episode,
+            # you might need to call it even during the episode run to change the reaching target for the IK-P controller
+            self.set_target(target)
+
+            #######################################################################################
+            # Spawn the target rectangle outside of the Unity simulator -> since it is not used   #
+            # or can harm the vision-based methods                                                #
+            # in dart we map the target to be in the same pose as the pose of the box (see above) #
+            #######################################################################################
+            # Spawn the target far away from the workspace (ROS convention payload)
+            # Unity side will convert to its coordinate system
+            target_positions_mapped.append([0, -5, -200, 0, 0, 0])
+
+            object_X, object_Y, object_Z, object_RX, object_RY, object_RZ = self.init_object_pose
+            object_positions_mapped.append([object_X, object_Y, object_Z, object_RX, object_RY, object_RZ])
+
+        if self.init_object_pose_per_robot:
+            self.init_object_pose = self.init_object_pose_per_robot[0]
 
         # initial position for the gripper state, accumulates the tool_action velocity received in update_action
         self.tool_target = 0.0  # should be in range [0.0,90.0]
@@ -462,22 +586,28 @@ class IiwaNumericalPlanarGraspingEnv(IiwaSampleEnv):
         joint_positions = self.dart_sim.chain.getPositions().tolist()
         joint_velocities = self.dart_sim.chain.getVelocities().tolist()
 
-        #######################################################################################
-        # Spawn the target rectangle outside of the Unity simulator -> since it is not used   #
-        # or can harm the vision-based methods                                                #
-        # in dart we map the target to be in the same pose as the pose of the box (see above) #
-        #######################################################################################
-        #target_positions = self.dart_sim.target.getPositions().tolist()
-        target_positions = [0, 0, 0, 0, -5, -200]
+        robot_entry = {
+            "active_joints": list(active_joints),
+            "joint_positions": list(joint_positions),
+            "joint_velocities": list(joint_velocities),
+            "gripper_position": float(self.tool_target),
+        }
 
-        target_X, target_Y, target_Z = -target_positions[4], target_positions[5], target_positions[3]
-        target_RX, target_RY, target_RZ = np.rad2deg([-target_positions[1], target_positions[2], target_positions[0]])
-        target_positions_mapped = [target_X, target_Y, target_Z, target_RX, target_RY, target_RZ]
+        robot_entries = self._build_robot_entries(robot_entry)
 
-        object_positions_mapped = [object_X, object_Y, object_Z, object_RX, object_RY, object_RZ]
+        target_positions_shifted = []
+        for idx, target_pose in enumerate(target_positions_mapped):
+            pose = list(target_pose)
+            if idx < len(robot_entries):
+                robot_pose = robot_entries[idx].get("robot_pose", [0.0, 0.0, 0.0, 0.0, 0.0, 0.0])
+                pose = transform_local_pose_to_world(robot_pose, pose)
+            target_positions_shifted.append(pose)
 
-        self.reset_state = active_joints + joint_positions + joint_velocities\
-                           + target_positions_mapped + object_positions_mapped + [self.tool_target]
+        self.reset_state = {
+            "robots": robot_entries,
+            "targets": target_positions_shifted,
+            "items": [list(pose) for pose in object_positions_mapped],
+        }
 
         self.collision_flag = False
 
@@ -486,11 +616,22 @@ class IiwaNumericalPlanarGraspingEnv(IiwaSampleEnv):
         # Initialize -during the __init__() they are set to np.inf                            #
         #######################################################################################
         if('object_position' in self.unity_observation):
-            self.prev_dist_ee_box_z = self.get_relative_distance_ee_box_z_unity()
-            self.prev_dist_ee_box_x = self.get_relative_distance_ee_box_x_unity()
-            self.prev_dist_ee_box_ry = self.get_relative_distance_ee_box_ry_unity() 
+            for ridx in range(self.robot_count):
+                if isinstance(self.init_object_pose_per_robot, list) and ridx < len(self.init_object_pose_per_robot):
+                    self.init_object_pose = self.init_object_pose_per_robot[ridx]
+                self.prev_dist_ee_box_x_per_robot[ridx] = self.get_relative_distance_ee_box_x()   # forward (ROS x)
+                self.prev_dist_ee_box_y_per_robot[ridx] = self.get_relative_distance_ee_box_y()   # lateral (ROS y)
+                self.prev_dist_ee_box_rz_per_robot[ridx] = self.get_relative_distance_ee_box_rz()  # yaw (ROS rz)
+            self.prev_dist_ee_box_x = self.prev_dist_ee_box_x_per_robot[0]
+            self.prev_dist_ee_box_y = self.prev_dist_ee_box_y_per_robot[0]
+            self.prev_dist_ee_box_rz = self.prev_dist_ee_box_rz_per_robot[0]
         else:
-            self.prev_dist_ee_box_z = self.prev_dist_ee_box_x = self.prev_dist_ee_box_ry = 0.0
+            self.prev_dist_ee_box_x_per_robot = [0.0] * self.robot_count
+            self.prev_dist_ee_box_y_per_robot = [0.0] * self.robot_count
+            self.prev_dist_ee_box_rz_per_robot = [0.0] * self.robot_count
+            self.prev_dist_ee_box_x = self.prev_dist_ee_box_y = self.prev_dist_ee_box_rz = 0.0
+
+        self._per_robot_success = [False] * self.robot_count
 
         return state
 
@@ -556,9 +697,9 @@ class IiwaNumericalPlanarGraspingEnv(IiwaSampleEnv):
             affects: self.target_rot_quat_dart
         """
 
-        _, ee_y, __ = self.get_ee_pos_unity()
+        ee_height = self.get_ee_pos()[2]  # ROS z = height
 
-        self.target_z_dart = ee_y
+        self.target_z_dart = ee_height
         self.target_rot_quat_dart = self.get_rot_ee_quat()
 
     ################
@@ -569,37 +710,37 @@ class IiwaNumericalPlanarGraspingEnv(IiwaSampleEnv):
             returns the reward value for the current observation
 
             uses a displacements logic:
-                - the current ee distance to the box in x, z, and ry axis minus the previous ee distance to box for the same axis (see implementation for more)
+                - the current ee distance to the box in x, y, and rz axis minus the previous ee distance to box for the same axis (see implementation for more)
 
             :return: reward displacement term (float)
         """
         reward = 0
 
-        # Z axis #
-        curr_dist_ee_box_z = self.get_relative_distance_ee_box_z_unity()
-        dz = (self.prev_dist_ee_box_z - curr_dist_ee_box_z)              # Displacement
+        # Forward axis (ROS x) #
+        curr_dist_ee_box_x = self.get_relative_distance_ee_box_x()
+        dx = (self.prev_dist_ee_box_x - curr_dist_ee_box_x)              # Displacement
 
-        dz /= self.reward_z_norm_const # Normalize
-        dz = np.clip(dz, -1, 1)        # Clip for safety
-        dz *= self.reward_z_weight     # Weight this term
+        dx /= self.reward_x_norm_const # Normalize
+        dx = np.clip(dx, -1, 1)        # Clip for safety
+        dx *= self.reward_x_weight     # Weight this term
 
-        # X axis #
-        curr_dist_ee_box_x = self.get_relative_distance_ee_box_x_unity()
-        dx = (self.prev_dist_ee_box_x - curr_dist_ee_box_x)
+        # Lateral axis (ROS y) #
+        curr_dist_ee_box_y = self.get_relative_distance_ee_box_y()
+        dy = (self.prev_dist_ee_box_y - curr_dist_ee_box_y)
 
-        dx /= self.reward_x_norm_const
-        dx = np.clip(dx, -1, 1)
-        dx *= self.reward_x_weight
+        dy /= self.reward_y_norm_const
+        dy = np.clip(dy, -1, 1)
+        dy *= self.reward_y_weight
 
-        # RY axis #
-        curr_dist_ee_box_ry = self.get_relative_distance_ee_box_ry_unity()
-        dry = (self.prev_dist_ee_box_ry - curr_dist_ee_box_ry)
+        # Yaw axis (ROS rz) #
+        curr_dist_ee_box_rz = self.get_relative_distance_ee_box_rz()
+        drz = (self.prev_dist_ee_box_rz - curr_dist_ee_box_rz)
 
-        dry /= self.reward_pose_norm_const
-        dry = np.clip(dry, -1, 1)
-        dry *= self.reward_pose_weight
+        drz /= self.reward_pose_norm_const
+        drz = np.clip(drz, -1, 1)
+        drz *= self.reward_pose_weight
 
-        reward = dz + dx + dry
+        reward = dx + dy + drz
 
         return reward
 
@@ -607,73 +748,67 @@ class IiwaNumericalPlanarGraspingEnv(IiwaSampleEnv):
     #############
     # Accessors #
     #############
-    def get_ee_orient_unity(self):
+    def get_ee_orient_euler(self):
         """
-            Override it for planar grasping envs - easier calculations
+        Get the end-effector orientation as Euler angles in DART/ROS convention.
 
-            :return: x, y, z orientation of the ee in Euler
+        :return: rx, ry, rz orientation of the ee in Euler (radians), DART/ROS convention
         """
         rot_mat = self.dart_sim.transform_ee.rotation()
         rx, ry, rz = dart.math.matrixToEulerXYZ(rot_mat)
-
-        rx_unity = -ry
-        ry_unity = rz
-        rz_unity = rx
-
-        return rx_unity, ry_unity, rz_unity
+        return rx, ry, rz
 
     def get_box_rotation_in_target_dart_coords_angle_axis(self):
         """
-            return in angle-axis dart coordinates the orientation of the box
-                  - read the unity coordinates of the box and then convert
-                  - unity uses degrees [-90, 0] for rotation in our case)
-                  - if the orientation of the box is in a different range adapt
- 
-            :return: a, b, c (in rad) angle-axis dart coordinates the orientation of the box
-        """
+        Return in angle-axis DART/ROS coordinates the orientation of the box.
 
-        object_RY = self.init_object_pose_unity[4]
-        object_RY = -object_RY if object_RY >= -45 else -object_RY - 90
-        r = R.from_euler('xyz', [-180, 0, -180 + object_RY], degrees=True)
+        Reads the box yaw from init_object_pose (ROS convention, index 5 = rz in radians)
+        and converts to a 3x3 rotation matrix, then to logMap angle-axis.
+
+        :return: a, b, c (in rad) angle-axis DART/ROS coordinates of the box orientation
+        """
+        # In ROS convention, yaw is rz (index 5 of [x, y, z, rx, ry, rz])
+        object_rz = self.init_object_pose[5]  # radians
+        object_rz = -object_rz if object_rz >= -np.pi/4 else -object_rz - np.pi/2
+        r = R.from_euler('xyz', [-np.pi, 0, -np.pi + object_rz], degrees=False)
         r = r.as_matrix()
         a, b, c = dart.math.logMap(r)
-
         return a, b, c
 
-    def get_object_pos_unity(self):
+    def get_object_pos(self):
         """
-            get the position of the box in unity coords
+        Get the position of the box from Unity observation (now in ROS convention).
 
-            :return: x, y, z coords of box in unity
+        :return: x, y, z coords of box (ROS: x=forward, y=left, z=up)
         """
         return self.unity_observation['object_position'][0], self.unity_observation['object_position'][1], self.unity_observation['object_position'][2]
 
-    def get_object_orient_unity(self):
+    def get_object_orient(self):
         """
-            get the orientation of the box in unity coords
-                Important: works for planar grasping envs only - assume the box does not move during the RL episode
+        Get the orientation of the box (ROS convention).
+        Important: works for planar grasping envs only — assumes the box does not move during the episode.
 
-            :return: rx, ry, rz coords of box in unity
+        :return: rx, ry, rz orientation of box (ROS convention, radians)
         """
-        return self.init_object_pose_unity[3], self.init_object_pose_unity[4], self.init_object_pose_unity[5]
+        return self.init_object_pose[3], self.init_object_pose[4], self.init_object_pose[5]
 
-    def get_object_height_unity(self):
+    def get_object_height(self):
         """
-            get the height of the box in unity coords
+        Get the height of the box (ROS Z-up convention).
 
-            :return: y coords of box
+        :return: z coord of box (height above ground)
         """
-        return self.unity_observation['object_position'][1]
+        return self.unity_observation['object_position'][2]
 
-    def get_object_pose_unity(self):
+    def get_object_pose(self):
         """
-            get the pose of the box in unity coords
-                Important: works for planar grasping envs only - assume the box does not move during the RL episode
+        Get the pose of the box (ROS convention).
+        Important: works for planar grasping envs only — assumes the box does not move during the episode.
 
-            :return: x, y, z, rx, ry, rz coords of box
+        :return: x, y, z, rx, ry, rz coords of box (ROS convention)
         """
         return self.unity_observation['object_position'][0], self.unity_observation['object_position'][1], self.unity_observation['object_position'][2], \
-               self.init_object_pose_unity[3], self.init_object_pose_unity[4], self.init_object_pose_unity[5]
+               self.init_object_pose[3], self.init_object_pose[4], self.init_object_pose[5]
 
     def get_collision_flag(self):
         """
@@ -683,191 +818,169 @@ class IiwaNumericalPlanarGraspingEnv(IiwaSampleEnv):
         """
         return self.unity_observation['collision_flag']
 
-    def get_relative_distance_ee_box_x_unity(self):
+    def get_relative_distance_ee_box_y(self):
         """
-            get the relative distance from the box to the ee in x axis in unity coords
+        Get the absolute lateral distance (ROS y-axis) from box to ee.
 
-            :return: dist (float) of the box to the ee in x axis
+        :return: dist (float) lateral distance from ee to box
         """
-        x_err, _, _ = self.get_error_ee_box_pos_unity()
-        dist = abs(x_err)
+        _, y_err, _ = self.get_error_ee_box_pos()
+        return abs(y_err)
 
-        return dist
-
-    def get_relative_distance_ee_box_z_unity(self):
+    def get_relative_distance_ee_box_x(self):
         """
-            get the relative distance from the box to the ee in z axis in unity coords
+        Get the absolute forward distance (ROS x-axis) from box to ee.
 
-            :return: dist of the box to the ee in z axis
+        :return: dist (float) forward distance from ee to box
         """
-        _, _, z_err = self.get_error_ee_box_pos_unity()
-        dist = abs(z_err)
+        x_err, _, _ = self.get_error_ee_box_pos()
+        return abs(x_err)
 
-        return dist
-
-    def get_relative_distance_ee_box_ry_unity(self):
+    def get_relative_distance_ee_box_rz(self):
         """
-            get the relative distance from the box to the ee in ry axis in unity coords
+        Get the absolute yaw distance (ROS rz) from box to ee.
 
-            :return: dist of the box to the ee in ry axis
+        :return: dist (float) yaw distance from ee to box (radians)
         """
-        ry_err = self.get_error_ee_box_ry_unity()
-        dist = abs(ry_err)
+        rz_err = self.get_error_ee_box_rz()
+        return abs(rz_err)
 
-        return dist
-
-    def get_error_ee_box_pos_unity(self):
+    def get_error_ee_box_pos(self):
         """
-            get the error from the box to the ee in unity coords
+        Get the position error from box to ee in ROS convention.
 
-            :return: x_err, y_err, z_err of the box to the ee
+        :return: x_err (forward), y_err (lateral), z_err (height) of box minus ee
         """
-        object_x, object_y, object_z = self.get_object_pos_unity()
-        ee_x, ee_y, ee_z = self.get_ee_pos_unity()
-
+        object_x, object_y, object_z = self.get_object_pos()
+        ee_x, ee_y, ee_z = self.get_ee_pos()
         return object_x - ee_x, object_y - ee_y, object_z - ee_z
 
-    def get_error_ee_box_x_z_unity(self):
+    def get_error_ee_box_x_y(self):
         """
-            get the error from the box to the ee in x and z axis in unity coords
+        Get the forward (x) and lateral (y) error from box to ee in ROS convention.
 
-            :return: x_err, z_err of the box to the ee
+        :return: x_err (forward), y_err (lateral) of box minus ee
         """
-        x_err, _, z_err = self.get_error_ee_box_pos_unity()
+        x_err, y_err, _ = self.get_error_ee_box_pos()
+        return x_err, y_err
 
-        return x_err, z_err
-
-    def get_error_ee_box_x_z_normalized_unity(self):
+    def get_error_ee_box_x_y_normalized(self):
         """
-            get the normalized error from the box to the ee in x and z axis in unity coords
-                Important: hard-coded manner - adapt if the ee starts from different initial position, or
-                           the boxes are not spawned in front of the robot
+        Get the normalized forward (x) and lateral (y) error from box to ee.
+        Important: hard-coded normalization — adapt if the ee starts from a different initial position,
+                   or the boxes are not spawned in front of the robot.
 
-            :return: x_err, z_err normalized of the box to the ee
+        :return: x_err_norm (forward/0.73), y_err_norm (lateral/1.4)
         """
-        x_err, z_err = self.get_error_ee_box_x_z_unity()
+        x_err, y_err = self.get_error_ee_box_x_y()
+        return x_err / 0.73, y_err / 1.4
 
-        return x_err / 1.4, z_err / 0.73
-
-    def get_error_ee_box_ry_unity(self):
+    def get_error_ee_box_rz(self):
         """
-            get the relative error from the box to the ee in ry axis in unity coords
+        Get the yaw (ROS rz) error from box to ee in radians.
 
-            :return: ry_err of the box to the ee - in radians
+        :return: rz_err of box minus ee (radians)
         """
-        _, ee_ry, _ = self.get_ee_orient_unity()
+        _, _, ee_rz = self.get_ee_orient_euler()
 
-        #####################################################
-        # Transorm ee and box ry rotation to our needs      #
-        # see the function implementation for more details  #
-        #####################################################
-        box_ry = np.deg2rad(self.init_object_pose_unity[4]) # Deg -> rad  
-        clipped_ee_ry, clipped_box_ry = self.clip_ee_ry_and_box_ry(ee_ry, box_ry)
+        ##########################################################
+        # Transform ee and box rz (yaw) rotation to our needs   #
+        # see the clip function implementation for more details  #
+        ##########################################################
+        box_rz = self.init_object_pose[5]  # ROS rz (already in radians)
+        clipped_ee_rz, clipped_box_rz = self.clip_ee_rz_and_box_rz(ee_rz, box_rz)
 
-        ry_error = clipped_box_ry - clipped_ee_ry
+        return clipped_box_rz - clipped_ee_rz
 
-        return ry_error
-
-    def get_error_ee_box_ry_normalized_unity(self):
+    def get_error_ee_box_rz_normalized(self):
         """
-            get the normalized relative error from the box to the ee in ry axis in unity coords
-                Important: hard-coded normalization - adapt if needed
+        Get the normalized yaw error from box to ee.
 
-            :return: ry_err normalized of the box to the ee
+        :return: rz_err / (2*pi) normalized yaw error
         """
-        error_ry = self.get_error_ee_box_ry_unity()
+        return self.get_error_ee_box_rz() / (2 * np.pi)
 
-        return error_ry / (2 * np.pi)
-
-    def clip_ee_ry_and_box_ry(self, ee_ry, box_ry):
+    def clip_ee_rz_and_box_rz(self, ee_rz, box_rz):
         """
-            Fix the rotation in y axis for both box and end-effector
-                - Input for the ee is the raw observation of rotation returned from the Unity simulator
-                - Input for the box is the rotation returned from the boxGenerator but transformed in radians
-                - The ee starts at +-np.pi rotation in y-axis.
-                - Important: some observations are returned with a change of sign and they should be corrected.
+        Fix the yaw (rz) rotation for both box and end-effector.
 
-            Important: In this clipping behaviour, we assume that when the ee is at +-np.pi and the box
-                       at 0 radians, then the error between them is zero. No rotation should be performed - 'highest reward'
-                           - Hence, in this case, the function returns for ee_ry -np.pi and for box_ry -np.pi so that their difference is 0.
+        In the ROS convention, yaw is the rotation around the Z-axis (rz).
+        - Input for the ee is the raw DART Euler rz component.
+        - Input for the box is the rz returned from the boxGenerator (radians).
+        - The ee starts at +-pi yaw rotation.
+        - Some observations are returned with a sign change and should be corrected.
 
-            Note:      We also define only one correct rotation for grasping the box.
-                           - The Box rotation ranges from [-90, 0]
-                           - The ee should (only) turn clock-wise when the box is between [-90, -45), and
-                             counter-clock-wise when the box is between [-45, 0].
+        Important: We assume that when the ee is at +-pi and the box at 0 rad,
+                   the error is zero (no rotation needed — 'highest reward').
 
-            Warning:   If the ee starts from different rotation than +-np.pi or the box rotation spawn range of [-90, 0] is different - adapt.
+        Note: We define only one correct rotation direction for grasping:
+              - Box rz in [-pi/2, -pi/4): ee should turn clock-wise
+              - Box rz in [-pi/4, 0]: ee should turn counter-clock-wise
 
-            :param ee_ry:  ee rotation returned from the unity simulator in radians
-            :param boy_ry: box rotation returned from the boxGenerator, but transformed in radians - does not change during the RL episode
+        Warning: If the ee starts from a different rotation than +-pi or the box
+                 spawn range of [-pi/2, 0] rad is different — adapt.
 
-            :return: clipped_ee_ry corrected ee ry rotation in radians
-            :return: clipped_box_ry: corrected box ry rotation in radians
+        :param ee_rz: ee yaw rotation in radians (from DART Euler)
+        :param box_rz: box yaw rotation in radians (from boxGenerator)
+
+        :return: clipped_ee_rz corrected ee yaw in radians
+        :return: clipped_box_rz corrected box yaw in radians
         """
-
-        if (self.init_object_pose_unity[4] >= -45): # Counter-clock-wise rotation should be performed
-            if (ee_ry > 0): # Change of sign
-                ee_ry *= -1
+        if (self.init_object_pose[5] >= -np.pi/4):  # Counter-clock-wise rotation
+            if (ee_rz > 0):
+                ee_rz *= -1
             else:
-                # ee is turning in the wrong direction. ee rotation is #
-                # decreasing but the error to the box is increasing.   #
-                # add the difference to correct the error              #
-                ee_ry = -np.pi - (np.pi + ee_ry) 
+                ee_rz = -np.pi - (np.pi + ee_rz)
 
-            # When box_ry is at 0 rad - no rotation of the ee is needed #
-            clipped_box_ry = -np.pi - box_ry
+            clipped_box_rz = -np.pi - box_rz
 
-        elif (self.init_object_pose_unity[4] < -45): # Clock-wise rotation should be performed
-            if (ee_ry < 0):
-                ee_ry *= -1
+        elif (self.init_object_pose[5] < -np.pi/4):  # Clock-wise rotation
+            if (ee_rz < 0):
+                ee_rz *= -1
             else:
-                ee_ry = np.pi + (np.pi - ee_ry)
+                ee_rz = np.pi + (np.pi - ee_rz)
 
-            clipped_box_ry = np.pi + (-np.pi / 2 - box_ry)
+            clipped_box_rz = np.pi + (-np.pi / 2 - box_rz)
 
-        clipped_ee_ry = ee_ry
+        clipped_ee_rz = ee_rz
 
-        return clipped_ee_ry, clipped_box_ry
+        return clipped_ee_rz, clipped_box_rz
 
-    def clip_ry(self, ee_ry):
+    def clip_rz(self, ee_rz):
         """
-            Individual cliping function. For more information refer to the self.clip_ee_ry_and_box_ry() definition
-                - This re-definition is for agents that need to clip ee_ry and box_ry seperately 
+        Individual yaw clipping function. See clip_ee_rz_and_box_rz() for details.
+        This variant is for agents that need to clip ee_rz and box_rz separately.
 
-            :param ee_ry:  ee rotation returned from the unity simulator in radians
+        :param ee_rz: ee yaw rotation in radians
 
-            :return: clipped_ee_ry corrected ee rotation (rad)
+        :return: clipped_ee_rz corrected ee yaw rotation (radians)
         """
-
-        if (self.init_object_pose_unity[4] >= -45): 
-            if (ee_ry > 0): 
-                ee_ry *= -1
+        if (self.init_object_pose[5] >= -np.pi/4):
+            if (ee_rz > 0):
+                ee_rz *= -1
             else:
-                ee_ry = -np.pi - (np.pi + ee_ry) 
+                ee_rz = -np.pi - (np.pi + ee_rz)
 
-        elif (self.init_object_pose_unity[4] < -45): 
-            if (ee_ry < 0):
-                ee_ry *= -1
+        elif (self.init_object_pose[5] < -np.pi/4):
+            if (ee_rz < 0):
+                ee_rz *= -1
             else:
-                ee_ry = np.pi + (np.pi - ee_ry)
+                ee_rz = np.pi + (np.pi - ee_rz)
 
-        clipped_ee_ry = ee_ry
+        return ee_rz
 
-        return clipped_ee_ry 
-
-    def clip_box_ry(self, box_ry):
+    def clip_box_rz(self, box_rz):
         """
-            Individual cliping function. For more information refer to the self.clip_ee_ry_and_box_ry() definition
-                - This re-definition is for agents that need to clip ee_ry and box_ry seperately 
+        Individual box yaw clipping function. See clip_ee_rz_and_box_rz() for details.
+        This variant is for agents that need to clip ee_rz and box_rz separately.
 
-            :param boy_ry: box rotation returned from the boxGenerator, but transformed in radians - does not change during the RL episode
+        :param box_rz: box yaw rotation in radians (from boxGenerator)
 
-            :return: clipped_box_ry: corrected box ry rotation in radians
+        :return: clipped_box_rz corrected box yaw rotation in radians
         """
+        if (self.init_object_pose[5] >= -np.pi/4):
+            clipped_box_rz = -np.pi - box_rz
+        elif (self.init_object_pose[5] < -np.pi/4):
+            clipped_box_rz = np.pi + (-np.pi / 2 - box_rz)
 
-        if (self.init_object_pose_unity[4] >= -45):
-            clipped_box_ry = -np.pi - box_ry 
-        elif (self.init_object_pose_unity[4] < -45):
-            clipped_box_ry = np.pi + (-np.pi / 2 - box_ry) 
-
-        return clipped_box_ry
+        return clipped_box_rz

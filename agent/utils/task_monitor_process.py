@@ -7,7 +7,9 @@ via the primitives defined in ``task_monitor_ipc``.
 from __future__ import annotations
 
 from multiprocessing.connection import Connection
-from typing import Dict, Optional, Set, Tuple
+from typing import Dict, Optional, Set, Tuple, Any
+
+import numpy as np
 
 from PySide2.QtCore import QTimer
 from PySide2.QtWidgets import QApplication
@@ -172,7 +174,7 @@ class _MonitorRuntime:
             return
 
         existing_spec = self._metadata.get(env_id)
-        reuse_panel = existing_spec is not None and existing_spec == spec
+        reuse_panel = existing_spec is not None and self._specs_equivalent(existing_spec, spec)
 
         existing_reader = self._readers.pop(env_id, None)
         if existing_reader is not None:
@@ -184,6 +186,21 @@ class _MonitorRuntime:
 
         self._pending_attach[env_id] = (spec, descriptor, version, reuse_panel)
         self._attempt_attach(env_id)
+
+    @staticmethod
+    def _specs_equivalent(a: MonitorSpec, b: MonitorSpec) -> bool:
+        def _normalize(value: Any) -> Any:
+            if isinstance(value, np.ndarray):
+                return value.tolist()
+            if isinstance(value, (list, tuple)):
+                return [_normalize(v) for v in value]
+            if isinstance(value, dict):
+                return {k: _normalize(v) for k, v in value.items()}
+            return value
+
+        if a.env_id != b.env_id or a.name != b.name or a.type != b.type:
+            return False
+        return _normalize(a.config) == _normalize(b.config)
 
     def _handle_update_env(self, env_id: int) -> None:
         """Mark ``env_id`` for processing on the next poll tick.

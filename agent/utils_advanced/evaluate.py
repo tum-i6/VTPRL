@@ -25,6 +25,16 @@ from models.ruckig_planar_model import RuckigPlanarModel
 # Set-up envs
 from utils_advanced.helpers import get_env
 
+
+def _normalize_env_method_actions(raw_actions, action_shape, num_envs):
+    """Normalize ``env_method`` action payloads to ``(num_envs, *action_shape)``."""
+    target_shape = (int(num_envs),) + tuple(action_shape)
+    expected_size = int(np.prod(target_shape))
+    flat = np.asarray(raw_actions, dtype=np.float32).reshape(-1)
+    if flat.size != expected_size:
+        raise ValueError(f"Invalid action payload size {flat.size}; expected {expected_size} for shape {target_shape}.")
+    return flat.reshape(target_shape)
+
 def evaluation_mode(agent, root, sim, gym, manip_env, observation, hyper_dict, goal_dict, reward_dict, manual_actions_dict=None, randomBoxesGenerator=None):
     """
         evaluate a single checkpoint or a whole directory that may include many runs and many checkpoints per run. Save results in .csv file
@@ -101,12 +111,18 @@ def _evaluate_base_env(env, agent, gym):
             while True:  # Play until we have a successful episode
                 if gym['manipulator_gym_environment']['dart']['use_inverse_kinematics']:
                     # Generate an action for the current observation using a P-controller
-                    action = np.reshape(env.env_method('action_by_p_control', control_kp, 2.0 * control_kp),
-                                        (gym['num_envs'], env.action_space.shape[0]))
+                    action = _normalize_env_method_actions(
+                        env.env_method('action_by_p_control', control_kp, 2.0 * control_kp),
+                        env.action_space.shape,
+                        gym['num_envs'],
+                    )
                 else:
                     # Random action
-                    action = np.reshape(env.env_method('random_action'),
-                                        (gym['num_envs'], env.action_space.shape[0]))
+                    action = _normalize_env_method_actions(
+                        env.env_method('random_action'),
+                        env.action_space.shape,
+                        gym['num_envs'],
+                    )
 
                 # Play this action
                 obs, rewards, dones, info = env.step(action)

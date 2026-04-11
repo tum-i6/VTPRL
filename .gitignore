@@ -1,0 +1,13 @@
+# Binaries  #
+**/__pycache__/
+*.pyc
+*.pyo
+*.py[cod]
+
+# Folders #
+**/simulator/*
+**/logs/*
+**/runs/*
+**/checkpoints/*
+**/traces/*
+**/analysis_results/*

@@ -4,7 +4,7 @@ Manual actions functionality used in simulator_vec_env.py - see step() method
 Note: you can also implement your own manual function - in that case create a new function below and call it in the simulator_vec_env.py
 """
 
-import ast
+import json
 import numpy as np
 
 def configure_manual_settings_and_get_manual_function(vec_env, manual_actions_dict):
@@ -173,7 +173,14 @@ def _update_envs_manual_and_check_collisions(vec_env, envs_active, rews, observa
 
     for env in envs_active:
         observation = observations[env.id]
-        ob_coll = ast.literal_eval(observation)["Observation"][33]
+        parsed_obs = json.loads(observation) if isinstance(observation, (str, bytes)) else observation
+        robots = parsed_obs.get("Robots", []) if isinstance(parsed_obs, dict) else []
+        if not robots:
+            raise ValueError("Unity observation payload missing 'Robots'.")
+        robot_payload = robots[0]
+        numeric_payload = robot_payload.get("Numeric", robot_payload.get("Observation", []))
+        obs_vec = np.asarray(numeric_payload, dtype=float).flatten()
+        ob_coll = obs_vec[-1] if obs_vec.size > 0 else 0.0
 
         ##########################################################################
         # During the manual actions, the RL agents do not generate any velocites #
@@ -183,7 +190,7 @@ def _update_envs_manual_and_check_collisions(vec_env, envs_active, rews, observa
 
         # Update only valid envs #
         if (float(ob_coll) != 1.0 and env.joints_limits_violation() == False):
-            env.update(ast.literal_eval(observation), time_step_update=False)
+            env.update(parsed_obs, time_step_update=False)
             envs_active_new.append(env)
 
         # Collision - add penalty #
@@ -221,11 +228,12 @@ def _go_down_up_manual(vec_env, envs_active, rews, height_target, gripper=0.0, e
             # Note: in the dart viewer the ee at the goal is more up as we assume that we have a gripper (urdf) but the gripper is not #
             #       yet visualized in the viewer. The vec_env.dart_sim.get_pos_distance() returns 0 correctly at the goal              #
             ############################################################################################################################
-            target_object_X, _, target_object_Z = env.init_object_pose_unity[0], env.init_object_pose_unity[1], env.init_object_pose_unity[2]
+            target_object_X, target_object_Y, _ = env.init_object_pose[0], env.init_object_pose[1], env.init_object_pose[2]
             tool_length = 0.0 # Adapt if the height of the box changes
             target_object_RX, target_object_RY, target_object_RZ = env.get_box_rotation_in_target_dart_coords_angle_axis()
 
-            target = [target_object_RX, target_object_RY, target_object_RZ, target_object_Z, -target_object_X, height_target + tool_length]
+            # DART target: [rx, ry, rz, x, y, z] — same convention as ROS
+            target = [target_object_RX, target_object_RY, target_object_RZ, target_object_X, target_object_Y, height_target + tool_length]
             env.set_target(target) # Set the dart target
 
     # Unity expects velocities in joint space for each env #
@@ -239,10 +247,10 @@ def _go_down_up_manual(vec_env, envs_active, rews, height_target, gripper=0.0, e
     ###################################################################
     target_pos_quat = [None] * len(vec_env.envs)                      # Target orientation in quat
     target_pos_x = np.zeros(len(vec_env.envs))
-    target_pos_z = np.zeros(len(vec_env.envs))
+    target_pos_y = np.zeros(len(vec_env.envs))
 
-    # Set the target height #
-    target_pos_y = height_target
+    # Set the target height (ROS z = height) #
+    target_pos_z_height = height_target
 
     # Wait all envs to finish #
     while True:
@@ -253,8 +261,8 @@ def _go_down_up_manual(vec_env, envs_active, rews, height_target, gripper=0.0, e
         envs_active_new = [] 
         for env in envs_active:
 
-            # Position of the ee in Unity #
-            ee_x, ee_y, ee_z, _, _, _ = env.get_ee_pose_unity()
+            # Position of the ee in ROS convention (x=forward, y=left, z=height) #
+            ee_x, ee_y, ee_z = env.get_ee_pos()
 
             # Current orientation of ee in quaternion in Dart #
             curr_quat = env.get_rot_ee_quat()
@@ -262,13 +270,13 @@ def _go_down_up_manual(vec_env, envs_active, rews, height_target, gripper=0.0, e
             # Set target pose - 0 timestep #
             if (vec_env.pid_step[env.id] == 0):
                 target_pos_quat[env.id] = curr_quat # Keep fixed orientation
-                target_pos_x[env.id] = ee_x         # Only move down/up keep. Keep fixed x, z position (dart)
-                target_pos_z[env.id] = ee_z
+                target_pos_x[env.id] = ee_x         # Keep fixed forward position (ROS x)
+                target_pos_y[env.id] = ee_y          # Keep fixed lateral position (ROS y)
 
-            # Current positional errors in dart #
-            x_diff = target_pos_z[env.id] - ee_z
-            y_diff = -target_pos_x[env.id] + ee_x
-            z_diff = target_pos_y - ee_y
+            # Current positional errors in DART/ROS convention #
+            x_diff = target_pos_x[env.id] - ee_x  # Forward error
+            y_diff = target_pos_y[env.id] - ee_y   # Lateral error
+            z_diff = target_pos_z_height - ee_z    # Height error
 
             # Current orientation error in dart #
             rx_diff, ry_diff, rz_diff = env.get_rot_error_from_quaternions(target_pos_quat[env.id], curr_quat)

@@ -12,6 +12,7 @@ from envs.iiwa_sample_joint_vel_env import IiwaJointVelEnv
 from envs.iiwa_sample_env import IiwaSampleEnv
 from envs.warehouse_unity_env import WarehouseUnityEnv
 from envs.so100_sample_env import SO100SampleEnv
+from utils.config_utils import first_manipulator_instance
 
 # Monitor envs 
 from stable_baselines3.common.vec_env import VecMonitor
@@ -25,6 +26,7 @@ def get_env(agent, root, sim, gym_cfg, manip_env, warehouse_env, observation, re
     """Create the vec env from structured config dictionaries."""
 
     env_key = gym_cfg['env_key']
+    mg = gym_cfg.get('manipulator_gym_environment', {})
     def create_env(id=0):
 
         #################################################################################################################################
@@ -41,8 +43,10 @@ def get_env(agent, root, sim, gym_cfg, manip_env, warehouse_env, observation, re
             jv_cfg = {
                 'use_images': use_images,
                 'image_size': img_size,
-                'state': gym_cfg['manipulator_gym_environment']['state'],
+                'state': mg['state'],
                 'num_joints': gym_cfg['num_joints'],
+                'manipulator_config': manip_env,
+                'manipulator_gym_config': mg,
             }
             env = IiwaJointVelEnv(max_ts=gym_cfg['max_time_step'], id=id, config=jv_cfg)
 
@@ -50,8 +54,8 @@ def get_env(agent, root, sim, gym_cfg, manip_env, warehouse_env, observation, re
         # task-space with dart or joint space control
         # model-based control with P-controller available
         elif env_key == 'iiwa_sample_dart_unity_env':
-            mg = gym_cfg['manipulator_gym_environment']
             d = mg['dart']
+            manip_cfg = first_manipulator_instance(manip_env)
             env = IiwaSampleEnv(max_ts=gym_cfg['max_time_step'], orientation_control=d['orientation_control'],
                                 use_ik=d['use_inverse_kinematics'], ik_by_sns=d['linear_motion_conservation'],
                                 state_type=mg['state'], enable_render=d['enable_dart_viewer'], with_objects=d['with_objects'],
@@ -60,12 +64,12 @@ def get_env(agent, root, sim, gym_cfg, manip_env, warehouse_env, observation, re
                                 max_joint_vel=d['max_joint_vel'], max_ee_cart_vel=d['max_ee_cart_vel'],
                                 max_ee_cart_acc=d['max_ee_cart_acc'], max_ee_rot_vel=d['max_ee_rot_vel'],
                                 max_ee_rot_acc=d['max_ee_rot_acc'], random_initial_joint_positions=mg['random_initial_joint_positions'],
-                                initial_positions=mg['initial_positions'], end_effector_model=manip_env['end_effector_model'],
-                                env_id=id)
+                                initial_positions=mg['initial_positions'], end_effector_model=manip_cfg.get('end_effector_model'),
+                                manipulator_config=manip_env, manipulator_gym_config=mg, env_id=id)
 
         elif env_key == 'so100_sample_dart_unity_env':
-            mg = gym_cfg['manipulator_gym_environment']
             d = mg['dart']
+            manip_cfg = first_manipulator_instance(manip_env)
             env = SO100SampleEnv(max_ts=gym_cfg['max_time_step'], orientation_control=d['orientation_control'],
                                  use_ik=d['use_inverse_kinematics'], ik_by_sns=d['linear_motion_conservation'],
                                  state_type=mg['state'], enable_render=d['enable_dart_viewer'], with_objects=d['with_objects'],
@@ -74,8 +78,8 @@ def get_env(agent, root, sim, gym_cfg, manip_env, warehouse_env, observation, re
                                  max_joint_vel=d['max_joint_vel'], max_ee_cart_vel=d['max_ee_cart_vel'],
                                  max_ee_cart_acc=d['max_ee_cart_acc'], max_ee_rot_vel=d['max_ee_rot_vel'],
                                  max_ee_rot_acc=d['max_ee_rot_acc'], random_initial_joint_positions=mg['random_initial_joint_positions'],
-                                 initial_positions=mg['initial_positions'], end_effector_model=manip_env['end_effector_model'],
-                                 env_id=id)
+                                 initial_positions=mg['initial_positions'], end_effector_model=manip_cfg.get('end_effector_model'),
+                                 manipulator_config=manip_env, manipulator_gym_config=mg, env_id=id)
 
         elif env_key == 'warehouse_unity_env':
             env = WarehouseUnityEnv(
@@ -129,6 +133,26 @@ if __name__ == "__main__":
 
     # Build env #
     env = get_env(agent, root, sim, gym, manip_env, warehouse_env, observation, reward_dict, agent["log_dir"])
+
+    def _normalize_env_method_actions(raw_actions):
+        target_shape = tuple(env.action_space.shape)
+        normalized = []
+        for idx, value in enumerate(raw_actions):
+            arr = np.asarray(value, dtype=np.float32)
+            if arr.shape == target_shape:
+                normalized.append(arr)
+                continue
+
+            # Backward-compatible single-robot outputs (action_dim,) -> (1, action_dim)
+            if len(target_shape) == 2 and arr.ndim == 1 and arr.shape[0] == target_shape[1]:
+                normalized.append(arr.reshape((1, target_shape[1])))
+                continue
+
+            raise ValueError(
+                f"Unexpected action shape from env_method at index {idx}: {arr.shape}, expected {target_shape}."
+            )
+
+        return np.asarray(normalized, dtype=np.float32)
 
     try:
         # Train the agent #
@@ -185,11 +209,11 @@ if __name__ == "__main__":
 
                 while True: # Play until we have a successful episode 
                     if gym['manipulator_gym_environment']['dart']['use_inverse_kinematics']:                        # Generate an action for the current observation using a P-controller
-                        action = np.reshape(env.env_method('action_by_p_control', control_kp, 2.0 * control_kp),
-                                            (gym['num_envs'], env.action_space.shape[0]))
+                        action = _normalize_env_method_actions(
+                            env.env_method('action_by_p_control', control_kp, 2.0 * control_kp)
+                        )
                     else:                                                                                           # Random action
-                        action = np.reshape(env.env_method('random_action'),
-                                            (gym['num_envs'], env.action_space.shape[0]))
+                        action = _normalize_env_method_actions(env.env_method('random_action'))
 
                     obs, rewards, dones, info = env.step(action)                                                    # Play this action
                     cum_reward += rewards
@@ -216,7 +240,7 @@ if __name__ == "__main__":
                 cum_reward = 0.0
                 while True:
                     # Use simple P controller provided by the env
-                    action = np.reshape(env.env_method('action_by_p_control', 1.0, 2.0), (gym['num_envs'], env.action_space.shape[0]))
+                    action = _normalize_env_method_actions(env.env_method('action_by_p_control', 1.0, 2.0))
                     # step_time = time.time()
                     obs, rewards, dones, info = env.step(action)
                     # print("Step time (ms): " + str((time.time() - step_time)*1000.0))

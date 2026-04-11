@@ -2,9 +2,10 @@ import torch
 
 def PolicyNetworkVanillaReLU():
     """
-        returns a default policy network from SB3 but with ReLU activation functions
+        Build default SB3 policy kwargs with ReLU activations.
 
-        :return: policy_kwargs required for RL models like PPO
+        Returns:
+            Dictionary of ``policy_kwargs`` suitable for SB3 algorithms such as PPO.
     """
     policy_kwargs = dict(activation_fn=torch.nn.ReLU,
                          net_arch=[dict(pi=[64, 64], vf=[64, 64])],

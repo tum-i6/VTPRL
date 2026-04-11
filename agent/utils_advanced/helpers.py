@@ -1,4 +1,5 @@
 import numpy as np
+from utils.config_utils import first_manipulator_instance
 
 # Import envs #
 
@@ -17,7 +18,23 @@ from simulator_vec_env import SimulatorVecEnv
 
 def get_env(agent_dict, root_dict, sim_dict, gym_environment_dict, manipulator_environment_dict, observation_dict, log_dir, reward_dict=None, goal_dict=None, manual_actions_dict=None, randomBoxesGenerator=None):
     """
-        Set-up the env according to the input dictionary settings (structured config).
+        Set up a vectorized environment according to structured configuration dictionaries.
+
+        Args:
+            agent_dict: Agent/runtime configuration.
+            root_dict: Root simulator configuration.
+            sim_dict: Communication/simulator configuration.
+            gym_environment_dict: Gym environment configuration.
+            manipulator_environment_dict: Manipulator simulator configuration.
+            observation_dict: Observation/image configuration.
+            log_dir: Directory path used by ``VecMonitor``.
+            reward_dict: Optional reward configuration for planar tasks.
+            goal_dict: Optional goal/task configuration for planar tasks.
+            manual_actions_dict: Optional manual-action configuration.
+            randomBoxesGenerator: Optional random-box generator for planar grasping tasks.
+
+        Returns:
+            ``VecMonitor``-wrapped ``SimulatorVecEnv`` instance.
     """
 
     # Some basic checks #
@@ -46,15 +63,16 @@ def get_env(agent_dict, root_dict, sim_dict, gym_environment_dict, manipulator_e
     if(env_key.find("planar") != -1 and (manual_actions_dict["manual_behaviour"] != "planar_grasping")):
         raise Exception("Please enable manual planar grasing actions for planar envs - aborting")
 
-    ee_enabled = manipulator_environment_dict.get("enable_end_effector", False)
-    ee_model = manipulator_environment_dict.get("end_effector_model", None)
+    manip_cfg = first_manipulator_instance(manipulator_environment_dict)
+    ee_enabled = manip_cfg.get("enable_end_effector", False)
+    ee_model = manip_cfg.get("end_effector_model", None)
     if(env_key.find("planar") != -1 and (ee_enabled == False or ee_model not in ("ROBOTIQ_3F", "ROBOTIQ_2F85"))):
         raise Exception("Please enable the gripper for planar envs - aborting")
 
     if(env_key.find("planar") != -1 and (goal_dict["goal_type"] != "box")):
         raise Exception("Please enable boxes as targets for planar envs - aborting")
 
-    if(env_key.find("planar") != -1 and (goal_dict["box_ry_active"] == True and np.isclose(reward_dict["reward_pose_weight"], 0.0))):
+    if(env_key.find("planar") != -1 and (goal_dict["box_rz_active"] == True and np.isclose(reward_dict["reward_pose_weight"], 0.0))):
         raise Exception("Add more weight to the reward pose to activate 3 DoF control for planar envs when the rotation is active in spanwed boxes - aborting")
 
     if((manual_actions_dict["manual"] == True) and (manual_actions_dict["manual_behaviour"] == "planar_grasping" or manual_actions_dict["manual_behaviour"] == "close_gripper") and (ee_enabled == False or ee_model not in ("ROBOTIQ_3F", "ROBOTIQ_2F85"))):
@@ -65,6 +83,14 @@ def get_env(agent_dict, root_dict, sim_dict, gym_environment_dict, manipulator_e
     # End checks #
 
     def create_env(id=0):
+        """Instantiate one environment instance for a specific vector index.
+
+        Args:
+            id: Environment index used for seeding and simulator routing.
+
+        Returns:
+            Configured environment instance matching ``env_key``.
+        """
 
         #################################################################################################################################
         # Important: 'dart' substring should always be included in the 'env_key' for dart-based envs. E.g. 'iiwa_sample_dart_unity_env' #
@@ -82,6 +108,8 @@ def get_env(agent_dict, root_dict, sim_dict, gym_environment_dict, manipulator_e
                 'image_size': img_size,
                 'state': mg['state'],
                 'num_joints': gym_environment_dict['num_joints'],
+                'manipulator_config': manipulator_environment_dict,
+                'manipulator_gym_config': mg,
             }
             env = IiwaJointVelEnv(max_ts=gym_environment_dict['max_time_step'], id=id, config=jv_cfg)
 
@@ -97,8 +125,8 @@ def get_env(agent_dict, root_dict, sim_dict, gym_environment_dict, manipulator_e
                                 max_joint_vel=d['max_joint_vel'], max_ee_cart_vel=d['max_ee_cart_vel'], 
                                 max_ee_cart_acc=d['max_ee_cart_acc'], max_ee_rot_vel=d['max_ee_rot_vel'],
                                 max_ee_rot_acc=d['max_ee_rot_acc'], random_initial_joint_positions=mg['random_initial_joint_positions'], 
-                                initial_positions=mg['initial_positions'], end_effector_model=manipulator_environment_dict['end_effector_model'], 
-                                env_id=id)
+                                initial_positions=mg['initial_positions'], end_effector_model=manip_cfg.get('end_effector_model'), 
+                                manipulator_config=manipulator_environment_dict, manipulator_gym_config=mg, env_id=id)
 
         # Planar RL grasping using the true numeric observations from the UNITY simulator #
         elif env_key == 'iiwa_numerical_planar_grasping_dart_unity_env': 
@@ -113,8 +141,8 @@ def get_env(agent_dict, root_dict, sim_dict, gym_environment_dict, manipulator_e
                                 initial_positions=mg['initial_positions'], noise_enable_rl_obs=agent_dict['noise_enable_rl_obs'],
                                 noise_rl_obs_ratio=agent_dict['noise_rl_obs_ratio'], reward_dict=reward_dict,
                                 agent_kp=mg['planar']['agent_kp'], agent_kpr=mg['planar']['agent_kpr'],
-                                end_effector_model=manipulator_environment_dict['end_effector_model'],
-                                env_id=id)
+                                end_effector_model=manip_cfg.get('end_effector_model'),
+                                manipulator_config=manipulator_environment_dict, manipulator_gym_config=mg, env_id=id)
 
         # Planar RL grasping using image observations as state representation - end-to-end learning #
         elif env_key == 'iiwa_end_to_end_planar_grasping_dart_unity_env': 
@@ -132,8 +160,8 @@ def get_env(agent_dict, root_dict, sim_dict, gym_environment_dict, manipulator_e
                                 initial_positions=mg['initial_positions'], noise_enable_rl_obs=agent_dict['noise_enable_rl_obs'],
                                 noise_rl_obs_ratio=agent_dict['noise_rl_obs_ratio'], reward_dict=reward_dict,
                                 agent_kp=mg['planar']['agent_kp'], agent_kpr=mg['planar']['agent_kpr'],
-                                image_size=img_size, end_effector_model=manipulator_environment_dict['end_effector_model'],
-                                env_id=id)
+                                image_size=img_size, end_effector_model=manip_cfg.get('end_effector_model'),
+                                manipulator_config=manipulator_environment_dict, manipulator_gym_config=mg, env_id=id)
 
         # Planar grasping using time-optimal trajectory generation method - RUCKIG #
         elif env_key == 'iiwa_ruckig_planar_grasping_dart_unity_env': 
@@ -148,8 +176,8 @@ def get_env(agent_dict, root_dict, sim_dict, gym_environment_dict, manipulator_e
                                 initial_positions=mg['initial_positions'], noise_enable_rl_obs=agent_dict['noise_enable_rl_obs'],
                                 noise_rl_obs_ratio=agent_dict['noise_rl_obs_ratio'], reward_dict=reward_dict,
                                 agent_kp=mg['planar']['agent_kp'], agent_kpr=mg['planar']['agent_kpr'],
-                                threshold_p_model_based=mg['planar']["threshold_p_model_based"], end_effector_model=manipulator_environment_dict['end_effector_model'],
-                                env_id=id)
+                                threshold_p_model_based=mg['planar']["threshold_p_model_based"], end_effector_model=manip_cfg.get('end_effector_model'),
+                                manipulator_config=manipulator_environment_dict, manipulator_gym_config=mg, env_id=id)
 
         # Set env seed #
         env.seed((id * 150) + (id + 11))

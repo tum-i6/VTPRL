@@ -10,8 +10,8 @@ DART changes the agent action space from the joint space to the cartesian space 
 
 action_by_pd_control method can be called to implement a Proportional-Derivative control law instead of an RL policy.
 
-Note: Coordinates in the Unity simulator are different from the ones in DART which used here:
-The mapping is [X, Y, Z] of Unity is [-y, z, x] of DART
+Note: All data exchanged with Unity is now in DART/ROS convention (x=forward, y=left, z=up).
+Coordinate conversions are handled entirely on the Unity (C#) side.
 """
 
 import numpy as np
@@ -26,7 +26,7 @@ class IiwaEndToEndPlanarGraspingEnv(IiwaNumericalPlanarGraspingEnv):
                  randomBoxesGenerator=None, joints_safety_limit=10, max_joint_vel=20, max_ee_cart_vel=0.035, max_ee_cart_acc =10, max_ee_rot_vel=0.15, max_ee_rot_acc=10,
                  random_initial_joint_positions=False, initial_positions=[0, 0, 0, -np.pi/2, 0, np.pi/2, np.pi/2],
                  noise_enable_rl_obs=False, noise_rl_obs_ratio=0.05, reward_dict=None, agent_kp=0.5, agent_kpr=1.5,
-                 robotic_tool=None, end_effector_model=None, image_size=128, env_id=0):
+                 robotic_tool=None, end_effector_model=None, manipulator_config=None, manipulator_gym_config=None, image_size=128, env_id=0):
 
         if(use_images != True):
             raise Exception("End-to-end vision-based env requires use_images to be set to True - abort")
@@ -45,10 +45,10 @@ class IiwaEndToEndPlanarGraspingEnv(IiwaNumericalPlanarGraspingEnv):
             robotic_tool = ee_map.get(end_effector_model, 'default_gripper')
 
         super().__init__(max_ts=max_ts, orientation_control=orientation_control, use_ik=use_ik, ik_by_sns=ik_by_sns, state_type=state_type, enable_render=enable_render, target_mode=target_mode, goal_type=goal_type, 
-                         randomBoxesGenerator=randomBoxesGenerator, joints_safety_limit=joints_safety_limit, max_joint_vel=max_joint_vel, max_ee_cart_vel=max_ee_cart_vel,
-                         max_ee_cart_acc=max_ee_cart_acc, max_ee_rot_vel=max_ee_rot_vel, max_ee_rot_acc=max_ee_rot_acc,
-                         random_initial_joint_positions=random_initial_joint_positions, initial_positions=initial_positions,noise_enable_rl_obs=False,noise_rl_obs_ratio=0.05,
-                         reward_dict=reward_dict, agent_kp=agent_kp, agent_kpr=agent_kpr, robotic_tool=robotic_tool, env_id=env_id)
+                        randomBoxesGenerator=randomBoxesGenerator, joints_safety_limit=joints_safety_limit, max_joint_vel=max_joint_vel, max_ee_cart_vel=max_ee_cart_vel,
+                        max_ee_cart_acc=max_ee_cart_acc, max_ee_rot_vel=max_ee_rot_vel, max_ee_rot_acc=max_ee_rot_acc,
+                        random_initial_joint_positions=random_initial_joint_positions, initial_positions=initial_positions,noise_enable_rl_obs=False,noise_rl_obs_ratio=0.05,
+                        reward_dict=reward_dict, agent_kp=agent_kp, agent_kpr=agent_kpr, robotic_tool=robotic_tool, manipulator_config=manipulator_config, manipulator_gym_config=manipulator_gym_config, env_id=env_id)
 
         self.use_images = use_images
         self.image_size = image_size
@@ -59,7 +59,10 @@ class IiwaEndToEndPlanarGraspingEnv(IiwaNumericalPlanarGraspingEnv):
         # Unormalized observation for now #
         # Adapt to your project           #
         ###################################
-        self.observation_space = spaces.Box(low=0, high=255, shape=(self.image_size, self.image_size, 3), dtype=np.uint8)
+        if self.robot_count > 1:
+            self.observation_space = spaces.Box(low=0, high=255, shape=(self.robot_count, self.image_size, self.image_size, 3), dtype=np.uint8)
+        else:
+            self.observation_space = spaces.Box(low=0, high=255, shape=(self.image_size, self.image_size, 3), dtype=np.uint8)
 
 
     def get_state(self):
@@ -96,50 +99,118 @@ class IiwaEndToEndPlanarGraspingEnv(IiwaNumericalPlanarGraspingEnv):
             :return: The state, reward, episode termination flag (done), and an empty info dictionary
         """
 
-        self.current_obs = observation['Observation']
+        self._latest_observation_payload = observation if isinstance(observation, dict) else None
 
-        ###############################################################################################
-        # Parse the image observation from Unity                                                      #
-        # This is a sample code - to make it faster process images in batches in simulator_vec_env.py #
-        # Decoding is done faster with pytorch -> then detach().numpy() and pass to the update()      #
-        # the decoded image instead of decoding the images inside each env individually               #
-        ###############################################################################################
-        self.current_obs_img = self.parse_image_observation(observation)
+        robots = observation.get('Robots', []) if isinstance(observation, dict) else []
+        if not robots:
+            raise ValueError("Unity observation payload missing 'Robots'.")
+        if len(robots) != self.robot_count:
+            raise ValueError(f"Robot payload count mismatch: expected {self.robot_count}, got {len(robots)}.")
 
-        # the methods below handles synchronizing states of the DART kinematic chain with the observation from Unity
-        # hence it should be always called
-        self._unity_retrieve_observation_numeric(observation['Observation'])
-        self._update_dart_chain()
-        self._update_env_flags()
+        robots_by_index = {}
+        for list_idx, payload in enumerate(robots):
+            if not isinstance(payload, dict):
+                continue
+            try:
+                ridx = int(payload.get('RobotIndex', list_idx))
+            except Exception:
+                ridx = list_idx
+            if ridx not in robots_by_index:
+                robots_by_index[ridx] = payload
 
-        # Class attributes below exist in the parent class, hence the names should not be changed
+        per_robot_images = []
+        per_robot_rewards = []
+        per_robot_success = []
+
+        for ridx in range(self.robot_count):
+            robot_payload = robots_by_index.get(ridx)
+            if robot_payload is None and ridx < len(robots):
+                candidate = robots[ridx]
+                if isinstance(candidate, dict):
+                    robot_payload = candidate
+            if robot_payload is None:
+                raise ValueError(f"Missing robot payload for robot index {ridx}.")
+
+            self.current_obs = robot_payload.get('Numeric', {}) if isinstance(robot_payload, dict) else {}
+            if isinstance(self.init_object_pose_per_robot, list) and ridx < len(self.init_object_pose_per_robot):
+                self.init_object_pose = self.init_object_pose_per_robot[ridx]
+
+            ###############################################################################################
+            # Parse the image observation from Unity                                                      #
+            # This is a sample code - to make it faster process images in batches in simulator_vec_env.py #
+            # Decoding is done faster with pytorch -> then detach().numpy() and pass to the update()      #
+            # the decoded image instead of decoding the images inside each env individually               #
+            ###############################################################################################
+            per_robot_images.append(self.parse_image_observation(observation, robot_payload, robot_index=ridx))
+
+            # the methods below handles synchronizing states of the DART kinematic chain with the observation from Unity
+            # hence it should be always called
+            self._unity_retrieve_observation_numeric(robot_payload, observation, robot_index=ridx)
+            self._update_dart_chain()
+            self._update_env_flags()
+
+            self.prev_dist_ee_box_x = self.prev_dist_ee_box_x_per_robot[ridx]
+            self.prev_dist_ee_box_y = self.prev_dist_ee_box_y_per_robot[ridx]
+            self.prev_dist_ee_box_rz = self.prev_dist_ee_box_rz_per_robot[ridx]
+
+            action_i = self.action_state[ridx] if isinstance(self.action_state, np.ndarray) and self.action_state.ndim == 2 else self.action_state
+            per_robot_rewards.append(float(self.get_reward(action_i)))
+            self.prev_dist_ee_box_x = self.get_relative_distance_ee_box_x()   # forward distance (ROS x)
+            self.prev_dist_ee_box_y = self.get_relative_distance_ee_box_y()   # lateral distance (ROS y)
+            self.prev_dist_ee_box_rz = self.get_relative_distance_ee_box_rz()  # yaw distance (ROS rz)
+            self.prev_dist_ee_box_x_per_robot[ridx] = self.prev_dist_ee_box_x
+            self.prev_dist_ee_box_y_per_robot[ridx] = self.prev_dist_ee_box_y
+            self.prev_dist_ee_box_rz_per_robot[ridx] = self.prev_dist_ee_box_rz
+            per_robot_success.append(bool(self.get_object_height() >= self.reward_height_goal and self.collided_env != 1))
+
+        if self.robot_count > 1:
+            self.current_obs_img = np.stack([img for img in per_robot_images if img is not None], axis=0) if any(img is not None for img in per_robot_images) else None
+        else:
+            self.current_obs_img = per_robot_images[0] if per_robot_images else None
+
         if(time_step_update == True):
             self.time_step += 1
 
         self._state = self.get_state()
-        self._reward = self.get_reward(self.action_state)
+        self._reward = float(np.sum(per_robot_rewards))
         self._done = bool(self.get_terminal())
-        self._info = {"success": False}                    # Episode was successful. It is set at simulator_vec_env.py before reseting
+        self._per_robot_success = per_robot_success
+        self._info = {
+            "success": bool(any(per_robot_success)),
+            "robot_count": self.robot_count,
+            "per_robot_rewards": per_robot_rewards,
+        }
 
-        # Keep track the previous distance of the ee to the box - used in the reward function #
-        self.prev_dist_ee_box_z = self.get_relative_distance_ee_box_z_unity()
-        self.prev_dist_ee_box_x = self.get_relative_distance_ee_box_x_unity()
-        self.prev_dist_ee_box_ry = self.get_relative_distance_ee_box_ry_unity() 
-
-        self.prev_action = self.action_state
+        self.prev_action = np.array(self.action_state, copy=True)
 
         return self._state, self._reward, self._done, self._info
 
-    def parse_image_observation(self, observation):
+    def parse_image_observation(self, observation, robot_payload, robot_index=0):
         """
            Read the unity observation and decode the RGB image
 
            :param observation: is the observation received from the Unity simulator
+           :param robot_payload: per-robot payload from Unity
 
            :return: decoded RGB image
         """
 
-        base64_bytes = observation['ImageData'][0].encode('ascii')
+        overhead_images = observation.get('OverheadImages', None)
+        robot_image = robot_payload.get('RobotImage', {}) if isinstance(robot_payload, dict) else {}
+        robot_image_data = robot_image.get('Data') if isinstance(robot_image, dict) else None
+        image_list = []
+        if overhead_images is not None:
+            for entry in overhead_images:
+                if isinstance(entry, dict):
+                    image_list.append(entry.get('Data'))
+                else:
+                    image_list.append(entry)
+        if robot_image_data is not None:
+            image_list.append(robot_image_data)
+        if not image_list:
+            return None
+
+        base64_bytes = image_list[0].encode('ascii')
         image_bytes = base64.b64decode(base64_bytes)
         image = np.frombuffer(image_bytes, np.uint8)
         image = cv2.imdecode(image, cv2.IMREAD_COLOR)

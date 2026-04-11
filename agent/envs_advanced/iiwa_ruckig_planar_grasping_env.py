@@ -12,8 +12,8 @@ DART changes the agent action space from the joint space to the cartesian space 
 
 action_by_pd_control method can be called to implement a Proportional-Derivative control law instead of an RL policy.
 
-Note: Coordinates in the Unity simulator are different from the ones in DART which used here:
-The mapping is [X, Y, Z] of Unity is [-y, z, x] of DART
+Note: All data exchanged with Unity is now in DART/ROS convention (x=forward, y=left, z=up).
+Coordinate conversions are handled entirely on the Unity (C#) side.
 """
 
 import numpy as np
@@ -29,7 +29,7 @@ class IiwaRuckigPlanarGraspingEnv(IiwaNumericalPlanarGraspingEnv):
                  joints_safety_limit=10, max_joint_vel=20, max_ee_cart_vel=0.035, max_ee_cart_acc =10, max_ee_rot_vel=0.15, max_ee_rot_acc=10,
                  random_initial_joint_positions=False, initial_positions=[0, 0, 0, -np.pi/2, 0, np.pi/2, np.pi/2], noise_enable_rl_obs=False, noise_rl_obs_ratio=0.05,
                  reward_dict=None, agent_kp=0.5, agent_kpr=1.5, threshold_p_model_based=0.01,
-                 robotic_tool=None, end_effector_model=None, env_id=0):
+                 robotic_tool=None, end_effector_model=None, manipulator_config=None, manipulator_gym_config=None, env_id=0):
 
         ################################################################################################
         # the init of the parent class should be always called, this will in the end call reset() once #
@@ -47,10 +47,10 @@ class IiwaRuckigPlanarGraspingEnv(IiwaNumericalPlanarGraspingEnv):
             robotic_tool = ee_map.get(end_effector_model, 'default_gripper')
 
         super().__init__(max_ts=max_ts, orientation_control=orientation_control, use_ik=use_ik, ik_by_sns=ik_by_sns, state_type=state_type, enable_render=enable_render,
-                         with_objects=with_objects, target_mode=target_mode, goal_type=goal_type, randomBoxesGenerator=randomBoxesGenerator,
-                         joints_safety_limit=joints_safety_limit, max_joint_vel=max_joint_vel, max_ee_cart_vel=max_ee_cart_vel, max_ee_cart_acc=max_ee_cart_acc, max_ee_rot_vel=max_ee_rot_vel, max_ee_rot_acc=max_ee_rot_acc,
-                         random_initial_joint_positions=random_initial_joint_positions, initial_positions=initial_positions,noise_enable_rl_obs=False,noise_rl_obs_ratio=0.05,
-                         reward_dict=reward_dict,agent_kp=agent_kp, agent_kpr=agent_kpr, robotic_tool=robotic_tool, env_id=env_id)
+                        with_objects=with_objects, target_mode=target_mode, goal_type=goal_type, randomBoxesGenerator=randomBoxesGenerator,
+                        joints_safety_limit=joints_safety_limit, max_joint_vel=max_joint_vel, max_ee_cart_vel=max_ee_cart_vel, max_ee_cart_acc=max_ee_cart_acc, max_ee_rot_vel=max_ee_rot_vel, max_ee_rot_acc=max_ee_rot_acc,
+                        random_initial_joint_positions=random_initial_joint_positions, initial_positions=initial_positions,noise_enable_rl_obs=False,noise_rl_obs_ratio=0.05,
+                        reward_dict=reward_dict,agent_kp=agent_kp, agent_kpr=agent_kpr, robotic_tool=robotic_tool, manipulator_config=manipulator_config, manipulator_gym_config=manipulator_gym_config, env_id=env_id)
 
         #############################################################################################
         # Joints are normalized in [-1, 1] at the get_state() function - for planar envs            #
@@ -99,11 +99,17 @@ class IiwaRuckigPlanarGraspingEnv(IiwaNumericalPlanarGraspingEnv):
 
             high = np.asarray([1, 0.95 + tool_length, 0.95 + tool_length, 0.95 + tool_length, 0.95 + tool_length])
 
-            self.observation_space = spaces.Box(low=low, high=high, dtype=np.float32)
+            low_multi = np.tile(low, self.robot_count)
+            high_multi = np.tile(high, self.robot_count)
+            self.observation_space = spaces.Box(low=low_multi, high=high_multi, dtype=np.float32)
 
-            self.action_space = spaces.Box(low=np.asarray([-self.MAX_EE_CART_VEL[1], -self.MAX_EE_CART_VEL[0]]), 
-                                           high=np.asarray([self.MAX_EE_CART_VEL[1], self.MAX_EE_CART_VEL[0]]), 
-                                           dtype=np.float32)
+            single_low = np.asarray([-self.MAX_EE_CART_VEL[1], -self.MAX_EE_CART_VEL[0]], dtype=np.float32)
+            single_high = np.asarray([self.MAX_EE_CART_VEL[1], self.MAX_EE_CART_VEL[0]], dtype=np.float32)
+            self.action_space = spaces.Box(
+                low=np.tile(single_low, (self.robot_count, 1)),
+                high=np.tile(single_high, (self.robot_count, 1)),
+                dtype=np.float32,
+            )
 
         else: # 3DoF control, rotation is active
             ##################
@@ -116,7 +122,7 @@ class IiwaRuckigPlanarGraspingEnv(IiwaNumericalPlanarGraspingEnv):
             # Gym-related #
             ###############
 
-            # X, Y, RY in unity #
+            # x (forward), y (lateral), rz (yaw) in ROS #
             self.action_space_dimension = 3
             self.observation_space_dimension = 6      # [reset, rz_ee_d, x_ee_d, y_ee_d, rz_box_d, x_box_d, y_box_d] - see get_state()
 
@@ -134,11 +140,17 @@ class IiwaRuckigPlanarGraspingEnv(IiwaNumericalPlanarGraspingEnv):
 
             high = np.asarray([1, 2*np.pi, 0.95 + tool_length, 0.95 + tool_length, 2*np.pi, 0.95 + tool_length, 0.95 + tool_length])
 
-            self.observation_space = spaces.Box(low=low, high=high, dtype=np.float32)
+            low_multi = np.tile(low, self.robot_count)
+            high_multi = np.tile(high, self.robot_count)
+            self.observation_space = spaces.Box(low=low_multi, high=high_multi, dtype=np.float32)
 
-            self.action_space = spaces.Box(low=np.asarray([-self.MAX_EE_ROT_VEL[2], -self.MAX_EE_CART_VEL[1], -self.MAX_EE_CART_VEL[1]]), 
-                                           high=np.asarray([self.MAX_EE_ROT_VEL[2], self.MAX_EE_CART_VEL[1], self.MAX_EE_CART_VEL[0]]), 
-                                           dtype=np.float32)
+            single_low = np.asarray([-self.MAX_EE_ROT_VEL[2], -self.MAX_EE_CART_VEL[1], -self.MAX_EE_CART_VEL[1]], dtype=np.float32)
+            single_high = np.asarray([self.MAX_EE_ROT_VEL[2], self.MAX_EE_CART_VEL[1], self.MAX_EE_CART_VEL[0]], dtype=np.float32)
+            self.action_space = spaces.Box(
+                low=np.tile(single_low, (self.robot_count, 1)),
+                high=np.tile(single_high, (self.robot_count, 1)),
+                dtype=np.float32,
+            )
 
     def get_state(self):
         """
@@ -151,7 +163,7 @@ class IiwaRuckigPlanarGraspingEnv(IiwaNumericalPlanarGraspingEnv):
            :return: state for the model-based agent (no RL training)
         """
         state = np.empty(0)
-        if(self.init_object_pose_unity == None):
+        if(self.init_object_pose == None):
             return state
 
         # Reset ruckig model (flag). Set target pose of ee only once       #
@@ -184,133 +196,163 @@ class IiwaRuckigPlanarGraspingEnv(IiwaNumericalPlanarGraspingEnv):
            :return: the command to send to the Unity simulator including joint velocities and gripper position
         """
 
-        #################
-        # Unity in DART #
-        # Yu = Zd       #
-        # Xu = -Yd      #
-        # Zu = Xd       #
-        #################
-
-        ##############################################################################
-        # Reset the P-controller - save the initial pose of the manipulator          #
-        # for moving in a planar manner during the episode e.g. keep the same height #
-        ##############################################################################
-        if (self.time_step == 1):
-            self.reset_agent_p_controller()
-
-        # the lines below should stay as it is
-        self.action_state = action
-        env_action = action
-
-        # Rotation is controlled by the model-based agent
-        if(self.action_space_dimension == 3):
-            task_vel = np.zeros(3)
+        act = np.asarray(action, dtype=np.float32)
+        if act.ndim == 1:
+            if act.size != self.action_space_dimension:
+                raise ValueError(f"Expected action dim {self.action_space_dimension}, got {act.size}.")
+            if self.robot_count > 1:
+                act = np.tile(act.reshape(1, -1), (self.robot_count, 1))
+            else:
+                act = act.reshape(1, -1)
+        elif act.ndim == 2:
+            if act.shape[1] != self.action_space_dimension:
+                raise ValueError(f"Expected per-robot action dim {self.action_space_dimension}, got {act.shape[1]}.")
+            if act.shape[0] != self.robot_count:
+                raise ValueError(f"Expected {self.robot_count} robot action rows, got {act.shape[0]}.")
         else:
-            task_vel = np.zeros(2)
+            raise ValueError(f"Unsupported action shape {act.shape}.")
 
-        ############################################################################
-        # The model-based agent controls the x, y and rotational z-axis (optional) #
-        ############################################################################
+        self.action_state = act
+        env_actions = np.clip(act, self.action_space.low, self.action_space.high)
 
-        ###########################################################################################
-        # Calculate the errors for the P-controller. Axis not controlled by the model-based agent #
-        # Important: P-controller expects dart coordinates                                        #
-        ###########################################################################################
-        _, ee_y, _ = self.get_ee_pos_unity()
-        z_diff = self.target_z_dart - ee_y                                                                    # Height 
-        curr_quat = self.get_rot_ee_quat()                                                                    # Current orientation of the ee in quaternions
-        rx_diff, ry_diff, rz_diff = self.get_rot_error_from_quaternions(self.target_rot_quat_dart, curr_quat) # Orientation error from the target pose
-        ################################################################################################
+        latest_payload = getattr(self, '_latest_observation_payload', None)
+        robots_payload = latest_payload.get('Robots', []) if isinstance(latest_payload, dict) else []
+        robots_by_index = {}
+        if isinstance(robots_payload, list):
+            for list_idx, payload in enumerate(robots_payload):
+                if not isinstance(payload, dict):
+                    continue
+                try:
+                    ridx = int(payload.get('RobotIndex', list_idx))
+                except Exception:
+                    ridx = list_idx
+                if ridx not in robots_by_index:
+                    robots_by_index[ridx] = payload
 
-        # Get poses #
-        curr_pose = self.get_ruckig_current_pose()  # Current ee pose
-        target_pose = self.get_ruckig_target_pose() # Current pose of the box - does not change during the episode
+        unity_actions = []
+        for ridx in range(self.robot_count):
+            payload = robots_by_index.get(ridx)
+            if payload is None and ridx < len(robots_payload):
+                candidate = robots_payload[ridx]
+                if isinstance(candidate, dict):
+                    payload = candidate
+            if payload is not None and isinstance(latest_payload, dict):
+                self._unity_retrieve_observation_numeric(payload, latest_payload, robot_index=ridx)
+                self._update_dart_chain()
 
-        ##############
-        # Dart cords #
-        ##############
-        if(self.action_space_dimension == 3): # Rotation is active - 3DoF control by the model-based agent 
-            task_vel[0] = env_action[0]
-            task_vel[1] = env_action[1]
-            task_vel[2] = env_action[2]
+            if isinstance(self.init_object_pose_per_robot, list) and ridx < len(self.init_object_pose_per_robot):
+                self.init_object_pose = self.init_object_pose_per_robot[ridx]
 
-            # Distance to the goal #
-            dist = np.linalg.norm(np.array([rx_diff, ry_diff, z_diff, target_pose[0] - curr_pose[0], target_pose[1] - curr_pose[1], target_pose[2] - curr_pose[2]]))
+            ##############################################################################
+            # Reset the P-controller - save the initial pose of the manipulator          #
+            # for moving in a planar manner during the episode e.g. keep the same height #
+            ##############################################################################
+            if self.time_step == 1:
+                self.reset_agent_p_controller()
 
-            if(dist < self.threshold_p_model_based): # Threshold is reached - stop, if active only
-                joint_vel = np.zeros(7)
-            else:
-                ###############################################################################################
-                # P-controller + inverse kinematics                                                           #
-                #   - The DoF that are controlled by the model-based agent are unaffected by the P-controller #
-                #   - see config_p_controller dictionary                                                      #                        
-                ###############################################################################################
-                joint_vel = self.action_by_p_controller_custom(rx_diff, ry_diff, task_vel[0],
-                                                               task_vel[1], task_vel[2], z_diff,
-                                                               self.agent_kpr, self.agent_kp,
-                                                               self.config_p_controller)
-        else: # Rotation is not active - 2DoF control by the model-based agent
-            task_vel[0] = env_action[0]
-            task_vel[1] = env_action[1]
+            env_action = env_actions[ridx]
+            # Rotation is controlled by the model-based agent
+            task_vel = np.zeros(3 if self.action_space_dimension == 3 else 2)
 
-            dist = np.linalg.norm(np.array([rx_diff, ry_diff, z_diff, rz_diff, target_pose[0] - curr_pose[0], target_pose[1] - curr_pose[1]]))
+            ############################################################################
+            # The model-based agent controls the x, y and rotational z-axis (optional) #
+            ############################################################################
 
-            if(dist < self.threshold_p_model_based): # Threshold is reached
-                joint_vel = np.zeros(7)
-            else:
-                joint_vel = self.action_by_p_controller_custom(rx_diff, ry_diff, rz_diff,
-                                                               task_vel[0], task_vel[1], z_diff,
-                                                               self.agent_kpr, self.agent_kp,
-                                                               self.config_p_controller)
+            ###########################################################################################
+            # Calculate the errors for the P-controller. Axis not controlled by the model-based agent #
+            # Important: P-controller expects dart coordinates                                        #
+            ###########################################################################################
+            ee_height = self.get_ee_pos()[2]  # ROS z = height
+            z_diff = self.target_z_dart - ee_height                                                               # Height 
+            curr_quat = self.get_rot_ee_quat()                                                                    # Current orientation of the ee in quaternions
+            rx_diff, ry_diff, rz_diff = self.get_rot_error_from_quaternions(self.target_rot_quat_dart, curr_quat) # Orientation error from the target pose
+            ################################################################################################
 
-        ###################################################################################################
-        # Gripper is not controlled via the model-based agent - manual actions - see simulator_vec_env.py # 
-        ###################################################################################################
-        unity_action = np.append(joint_vel, [float(0.0)])
+            # Get poses #
+            curr_pose = self.get_ruckig_current_pose()  # Current ee pose
+            target_pose = self.get_ruckig_target_pose() # Current pose of the box - does not change during the episode
 
-        return unity_action
+            ##############
+            # Dart cords #
+            ##############
+            if self.action_space_dimension == 3: # Rotation is active - 3DoF control by the model-based agent
+                task_vel[0] = env_action[0]
+                task_vel[1] = env_action[1]
+                task_vel[2] = env_action[2]
+
+                # Distance to the goal #
+                dist = np.linalg.norm(np.array([rx_diff, ry_diff, z_diff, target_pose[0] - curr_pose[0], target_pose[1] - curr_pose[1], target_pose[2] - curr_pose[2]]))
+                if dist < self.threshold_p_model_based: # Threshold is reached - stop, if active only
+                    joint_vel = np.zeros(7)
+                else:
+                    ###############################################################################################
+                    # P-controller + inverse kinematics                                                           #
+                    #   - The DoF that are controlled by the model-based agent are unaffected by the P-controller #
+                    #   - see config_p_controller dictionary                                                      #                        
+                    ###############################################################################################
+                    joint_vel = self.action_by_p_controller_custom(
+                        rx_diff, ry_diff, task_vel[0], task_vel[1], task_vel[2], z_diff,
+                        self.agent_kpr, self.agent_kp, self.config_p_controller
+                    )
+            else: # Rotation is not active - 2DoF control by the model-based agent
+                task_vel[0] = env_action[0]
+                task_vel[1] = env_action[1]
+                dist = np.linalg.norm(np.array([rx_diff, ry_diff, z_diff, rz_diff, target_pose[0] - curr_pose[0], target_pose[1] - curr_pose[1]]))
+                if dist < self.threshold_p_model_based: # Threshold is reached
+                    joint_vel = np.zeros(7)
+                else:
+                    joint_vel = self.action_by_p_controller_custom(
+                        rx_diff, ry_diff, rz_diff, task_vel[0], task_vel[1], z_diff,
+                        self.agent_kpr, self.agent_kp, self.config_p_controller
+                    )
+
+            ###################################################################################################
+            # Gripper is not controlled via the model-based agent - manual actions - see simulator_vec_env.py # 
+            ###################################################################################################
+            unity_actions.append(np.append(joint_vel, [float(0.0)]))
+
+        return np.asarray(unity_actions, dtype=np.float32)
 
     ###########
     # Helpers #
     ###########
     def get_ruckig_current_pose(self):
         """
-            get the current state pose of the ee in dart coordinates - needed in the get_state()
-                - refer also to the clip methods in iiwa_numerical_planar_grasping_env.py
+        Get the current state pose of the ee in DART/ROS coordinates — needed in get_state().
+        Refer also to the clip methods in iiwa_numerical_planar_grasping_env.py.
 
-           :return: ee_rz_d, ee_x_d, ee_y_d - or the first value is skipped if only 2DoF are controlled by the model-based agent
+        :return: ee_rz, ee_x, ee_y — or the first value is skipped if only 2DoF are controlled
         """
         state = np.empty(0)
 
-        # Rotation part of the ee - only if 3DoF are active #
+        # Yaw (rz) rotation of the ee — only if 3DoF are active #
         if(self.action_space_dimension == 3):
-            _, ee_ry, _ = self.get_ee_orient_unity()
-            ee_ry = self.clip_ry(ee_ry)
-            state = np.append(state, np.asarray([ee_ry]))
+            _, _, ee_rz = self.get_ee_orient_euler()
+            ee_rz = self.clip_rz(ee_rz)
+            state = np.append(state, np.asarray([ee_rz]))
 
-        # x and z position of the ee #
-        x, _, z = self.get_ee_pos_unity()
-        state = np.append(state, np.array([z, -x]))
+        # Forward (x) and lateral (y) position of the ee in ROS convention #
+        x, y, _ = self.get_ee_pos()
+        state = np.append(state, np.array([x, y]))
 
         return state
 
     def get_ruckig_target_pose(self):
         """
-            get the target state pose of the box - needed in the get_state()
-                - refer also to the clip methods in iiwa_numerical_planar_grasping_env.py
+        Get the target state pose of the box — needed in get_state().
+        Refer also to the clip methods in iiwa_numerical_planar_grasping_env.py.
 
-           :return: rz_box_d, x_box_d, y_box_d - or first value is skipped if only 2DoF are controlled by the model-based agent
-
+        :return: rz_box, x_box, y_box — or first value is skipped if only 2DoF are controlled
         """
         state = np.empty(0)
 
-        # Rotation part of the box - if 3DoF are active #
+        # Yaw (rz) rotation of the box — if 3DoF are active #
         if(self.action_space_dimension == 3):
-            box_ry_rad = np.deg2rad(self.init_object_pose_unity[4])
-            box_ry_rad = self.clip_box_ry(box_ry_rad)
-            state = np.append(state, np.asarray([box_ry_rad]))
+            box_rz_rad = self.init_object_pose[5]  # ROS rz (index 5)
+            box_rz_rad = self.clip_box_rz(box_rz_rad)
+            state = np.append(state, np.asarray([box_rz_rad]))
 
-        # x and z position of the box #
-        state = np.append(state, np.array([self.init_object_pose_unity[2], -self.init_object_pose_unity[0]]))
+        # Forward (x) and lateral (y) position of the box in ROS convention #
+        state = np.append(state, np.array([self.init_object_pose[0], self.init_object_pose[1]]))
 
         return state

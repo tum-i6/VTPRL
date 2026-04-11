@@ -161,13 +161,14 @@ class MonitorPayload:
         laser_points: Optional projected laser points.
         occupancy: Optional occupancy grid.
         costmap: Optional planner costmap.
-        navmesh: Optional navmesh snapshot (projected to 2D).
+        navmesh: Optional navmesh payload (projected to 2D).
         planner: Optional planner overlay data.
         target_pos: Optional target position (x, y meters).
         agent_state: Optional agent state vector.
         agent_action: Optional last agent action.
         agent_reward: Optional reward array for plotting.
         agent_image: Optional image payload (bytes or list of bytes).
+        robots: Optional robot payload.
     """
 
     robot_pose: Pose2D
@@ -187,6 +188,7 @@ class MonitorPayload:
     agent_action: Optional[np.ndarray] = None
     agent_reward: Optional[np.ndarray] = None
     agent_image: Optional[Any] = None
+    robots: Optional[List[Dict[str, Any]]] = None
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert payload to a dict compatible with the task monitor.
@@ -267,4 +269,9 @@ class MonitorPayload:
                     'origin': list(self.planner.costmap.origin_xy),
                 }
             data['planner_map'] = planner_payload
+        if self.robots is not None:
+            try:
+                data['robots'] = list(self.robots)
+            except Exception:
+                data['robots'] = self.robots
         return data

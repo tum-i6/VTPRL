@@ -11,6 +11,7 @@ Important:  First fully understand the logic behind config.py and 'iiwa_sample_d
 import os
 import numpy as np
 from utils.simulator_configuration import update_simulator_configuration
+from utils.config_utils import expand_item_instances, first_manipulator_instance
 from config import Config
 
 class ConfigAdvanced(Config):
@@ -211,8 +212,8 @@ class ConfigAdvanced(Config):
             'reward_pose_norm_const': 0.04,        # Normalization constant
             'reward_x_weight':        1.0,         # Importance of this term
             'reward_x_norm_const':    0.01,
-            'reward_z_weight':        1.0,
-            'reward_z_norm_const':    0.01
+            'reward_y_weight':        1.0,
+            'reward_y_norm_const':    0.01
         }
 
         return reward_dict
@@ -224,38 +225,38 @@ class ConfigAdvanced(Config):
             (*)
         """
         # Use simulator's manipulator.item settings to drive goal defaults
-        items_list = manipulator_environment_dict.get('items', []) if isinstance(manipulator_environment_dict, dict) else []
-        item_dict = items_list[0] if (isinstance(items_list, list) and len(items_list) > 0 and isinstance(items_list[0], dict)) else {}
+        item_instances = expand_item_instances(manipulator_environment_dict if isinstance(manipulator_environment_dict, dict) else {})
+        item_dict = item_instances[0] if item_instances else {}
 
         if(item_dict.get('item_type') == "BOX"):
             goal_dict_box = {
-                'goal_type':            'box',                                # Keep advanced envs focused on box targets
-                'box_type':              'small',                             # 'big' (10x10x10cm), or 'small' (5x10x5). Set 'box_dim' to the correct values
-                'box_mode':              "train",                             # 'train', 'val', 'debug'
-                'box_max_distance_base': 0.67,                                # Max distance of the box to the base of the robot 
-                'box_min_distance_base': 0.475,                               # Min distance of the box to the base of the robot
-                'box_folder':            "./agent/logs/dataset/",             # Folder to save the generated dataset
-                'box_samples':           200000,                              # Train and val
-                'box_split':             0.00025,                             # Val split ratio
-                'box_save_val':          True,                                # Save the dataset
-                'box_load_val':          False,                               # Load the validation boxes from a saved dataset. Train boxes are always random (seed)
-                'box_radius_val':        0.0,                                 # Exclude spawned train boxes that are close to the val boxes within this radius (threshold) in meters. e.g. 0.01
-                'box_x_active':          True,                                # If set to False:  x coord of the box will be always 0.0 meters
-                'box_x_min':             -0.67,                               # Minimum range for x box coordinate
-                'box_x_max':             0.67,                                # Maximum range for x box coordinate
-                'box_z_active':          True,
-                'box_z_min':             0.42,
-                'box_z_max':             0.67,
-                'box_ry_active':         True,                                # If set to False -> Boxes will have a fixed rotation (0.0 deg)
-                'box_ry_min':            -90,
-                'box_ry_max':            0,
-                'box_debug':             [-0.1, 0.05, 0.55, 0.0, -90.0, 0.0]  # 'box_mode': 'debug' -> spawn a fixed box for all envs
+                'goal_type':            'box',                                  # Keep advanced envs focused on box targets
+                'box_type':              'small',                               # 'big' (10x10x10cm), or 'small' (5x5x10). Set 'box_dim' to the correct values
+                'box_mode':              "train",                               # 'train', 'val', 'debug'
+                'box_max_distance_base': 0.67,                                  # Max distance of the box to the base of the robot 
+                'box_min_distance_base': 0.475,                                 # Min distance of the box to the base of the robot
+                'box_folder':            "./agent/logs/dataset/",               # Folder to save the generated dataset
+                'box_samples':           200000,                                # Train and val
+                'box_split':             0.00025,                               # Val split ratio
+                'box_save_val':          True,                                  # Save the dataset
+                'box_load_val':          False,                                 # Load the validation boxes from a saved dataset. Train boxes are always random (seed)
+                'box_radius_val':        0.0,                                   # Exclude spawned train boxes that are close to the val boxes within this radius (threshold) in meters. e.g. 0.01
+                'box_x_active':          True,                                  # If set to False:  x coord of the box will be always 0.0 meters
+                'box_x_min':             -0.67,                                 # Minimum range for x box coordinate
+                'box_x_max':             0.67,                                  # Maximum range for x box coordinate
+                'box_y_active':          True,
+                'box_y_min':             0.42,
+                'box_y_max':             0.67,
+                'box_rz_active':         True,                                  # If set to False -> Boxes will have a fixed rotation (0.0 rad)
+                'box_rz_min':            -np.pi/2,
+                'box_rz_max':            0,
+                'box_debug':             [0.55, 0.1, 0.05, 0.0, 0.0, -np.pi/2]  # 'box_mode': 'debug' -> spawn a fixed box for all envs
             }
 
             # Mirror box type into simulator item size to keep them consistent
             if isinstance(item_dict, dict):
                 if(goal_dict_box['box_type'] == 'small'):
-                    item_dict['item_size'] = [0.05, 0.1, 0.05]
+                    item_dict['item_size'] = [0.05, 0.05, 0.1]
                 elif(goal_dict_box['box_type'] == 'big'):
                     item_dict['item_size'] = [0.1, 0.1, 0.1]
 
@@ -271,8 +272,8 @@ class ConfigAdvanced(Config):
             'box_load_val':    False,
             'box_radius_val':  0.0,
             'box_x_active':    True,
-            'box_z_active':    True,
-            'box_ry_active':   True,
+            'box_y_active':    True,
+            'box_rz_active':   True,
         }
 
     @staticmethod
@@ -293,7 +294,10 @@ class ConfigAdvanced(Config):
 
         # Extend the 'manual_actions_dict' dict depending on the user-defined 'manual_behaviour' option #
         behaviour_dict = None
-        ee_model = (manipulator_environment_dict or {}).get('end_effector_model', None)
+        manip_cfg = first_manipulator_instance(manipulator_environment_dict if isinstance(manipulator_environment_dict, dict) else {})
+        ee_model = manip_cfg.get('end_effector_model')
+        if not manip_cfg.get('enable_end_effector', True):
+            ee_model = None
         box_type = (goal_dict or {}).get('box_type', 'small')
 
         if(manual_actions_dict["manual_behaviour"] == "planar_grasping"):
@@ -323,7 +327,7 @@ class ConfigAdvanced(Config):
 
         ######################################################################
         # Box 10x10x10 -> (0.055, 4, 15) / (down, close, close_vel)          #
-        # Box 5x10x5   -> (0.055, 6, 15) / (down, close, close_vel)          #
+        # Box 5x5x10   -> (0.055, 6, 15) / (down, close, close_vel)          #
         # (*) Change the configuration.xml of the Unity simulator:           #
         # (gripper type <EndEffectorModel> and box dimensions <ItemSize>)    #
         ######################################################################
@@ -378,7 +382,7 @@ class ConfigAdvanced(Config):
 
         ######################################################################
         # Box 10x10x10 -> (4, 15) / (close, close_vel)                       #
-        # Box 5x10x5   -> (6, 15) / (close, close_vel)                       #
+        # Box 5x5x10   -> (6, 15) / (close, close_vel)                       #
         # (*) Change the configuration.xml of the Unity simulator:           #
         # (gripper type <EndEffectorModel> and box dimensions <ItemSize>)    #
         ######################################################################

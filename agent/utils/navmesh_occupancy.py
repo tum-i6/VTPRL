@@ -50,10 +50,12 @@ def _coerce_vertices(vertices: Sequence[Sequence[float]]) -> np.ndarray:
     """
     array = np.asarray(vertices, dtype=float)
     if array.ndim == 1:
-        if array.size % 3 == 0:
-            array = array.reshape(-1, 3)
-        elif array.size % 2 == 0:
+        # Prefer 2D interpretation (X, Z pairs) over 3D to match the current
+        # Unity export format and avoid misrealigning columns.
+        if array.size % 2 == 0:
             array = array.reshape(-1, 2)
+        elif array.size % 3 == 0:
+            array = array.reshape(-1, 3)
     if array.shape[1] >= 3:
         array = array[:, (0, 2)]
     elif array.shape[1] >= 2:
@@ -132,16 +134,12 @@ def navmesh_to_occupancy_grid(
     max_x = float(np.max(verts_xy[:, 0]))
     max_y = float(np.max(verts_xy[:, 1]))
 
-    # Shift to origin and scale to pixel grid.
-    shifted = verts_xy - np.array([[min_x, min_y]], dtype=float)
-    scale = 1.0 / res
-    pix = shifted * scale
-
     # Always leave a one-cell outer border so areas beyond the navmesh remain occupied.
     border_cells = 1
     total_pad = int(padding_cells) + border_cells
-    width = int(math.floor((max_x - min_x) * scale)) + 1 + 2 * total_pad
-    height = int(math.floor((max_y - min_y) * scale)) + 1 + 2 * total_pad
+    scale = 1.0 / res
+    width = int(math.ceil((max_x - min_x) * scale)) + 2 * total_pad
+    height = int(math.ceil((max_y - min_y) * scale)) + 2 * total_pad
     width = max(width, 1)
     height = max(height, 1)
 
@@ -152,19 +150,31 @@ def navmesh_to_occupancy_grid(
     min_index = min(min(face) for face in faces_tri)
     index_offset = 1 if min_index >= 1 else 0
 
-    for face in faces_tri:
-        try:
-            pts = np.array([pix[i - index_offset] for i in face], dtype=np.float32)
-        except Exception:
-            continue
-        pts[:, 0] += total_pad
-        pts[:, 1] += total_pad
-        pts = np.round(pts).astype(np.int32)
-        # Clamp to canvas bounds so max-edge vertices stay inside the raster grid.
-        pts[:, 0] = np.clip(pts[:, 0], 0, width - 1)
-        pts[:, 1] = np.clip(pts[:, 1], 0, height - 1)
-        pts = pts.reshape((-1, 1, 2))
-        cv2.fillPoly(canvas, [pts], color=0)
+    origin_x = min_x - total_pad * res
+    origin_y = min_y - total_pad * res
+    shifted = verts_xy - np.array([[origin_x, origin_y]], dtype=float)
+    pix = shifted * scale - 0.5
+
+    # Rasterise each triangle using cv2.fillConvexPoly (overwrite mode).
+    # We intentionally avoid cv2.fillPoly with multiple contours because
+    # it uses the *even-odd fill rule*: a point covered by an even number
+    # of overlapping polygons is treated as "outside" and left unfilled.
+    # The NavMeshProvider patches add extra triangles that overlap the
+    # base mesh near the robot, so the even-odd rule causes those cells
+    # to stay occupied.  fillConvexPoly writes unconditionally (no XOR)
+    # and is optimised for convex shapes — triangles are always convex.
+    face_arr = np.asarray(faces_tri, dtype=np.intp) - index_offset
+    # Filter out faces with out-of-bounds vertex indices.
+    num_verts = len(pix)
+    valid_mask = np.all((face_arr >= 0) & (face_arr < num_verts), axis=1)
+    face_arr = face_arr[valid_mask]
+    if face_arr.size > 0:
+        all_pts = pix[face_arr]  # shape (num_faces, 3, 2)
+        all_pts = np.round(all_pts).astype(np.int32)
+        all_pts[:, :, 0] = np.clip(all_pts[:, :, 0], 0, width - 1)
+        all_pts[:, :, 1] = np.clip(all_pts[:, :, 1], 0, height - 1)
+        for tri_pts in all_pts:
+            cv2.fillConvexPoly(canvas, tri_pts, color=0)
 
     if padding_cells > 0:
         kernel_size = max(1, int(padding_cells))
@@ -187,9 +197,6 @@ def navmesh_to_occupancy_grid(
             unknown_cost=unknown_cost,
             free_cost=free_cost,
         )
-
-    origin_x = min_x - total_pad * res
-    origin_y = min_y - total_pad * res
 
     return OccupancyGridResult(
         grid=grid_int8,

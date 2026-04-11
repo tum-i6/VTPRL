@@ -11,7 +11,6 @@ from dataclasses import dataclass
 from enum import Enum
 import multiprocessing as mp
 from multiprocessing.shared_memory import SharedMemory
-from multiprocessing import resource_tracker
 import pickle
 import struct
 import threading
@@ -264,7 +263,10 @@ class SharedTelemetryWriter:
         if slot is not None:
             slot.close(unlink=True)
 
-        total_size = _HEADER_SIZE + max(minimum_capacity, 1024)
+        # Allocate with 2x headroom so small payload growth doesn't
+        # trigger reallocation (and a new SHM name) every step.
+        padded = max(minimum_capacity * 2, 1024)
+        total_size = _HEADER_SIZE + padded
         shm = SharedMemory(create=True, size=total_size)
         slot = _SharedMemorySlot(shm)
         self._slots[env_id] = slot
@@ -342,7 +344,6 @@ class SharedTelemetryReader:
         self._descriptor = descriptor
         self._shm: Optional[SharedMemory] = None
         self._last_version = 0
-        self._is_tracked = False
         if not self._reattach():
             raise FileNotFoundError(descriptor.name)
 
@@ -473,21 +474,11 @@ class SharedTelemetryReader:
         except Exception:
             self._shm = None
             return False
-        name = getattr(self._descriptor, "name", None)
-        if name:
-            try:
-                resource_tracker.register(name, "shared_memory")
-                self._is_tracked = True
-            except ValueError:
-                # Already tracked; keep flag so we attempt to unregister later.
-                self._is_tracked = True
-            except Exception:
-                self._is_tracked = False
         self._last_version = 0
         return True
 
     def _close_internal(self) -> None:
-        """Internal helper to close shared memory and unregister tracking.
+        """Internal helper to close shared memory.
 
         Returns
         -------
@@ -500,14 +491,6 @@ class SharedTelemetryReader:
                 pass
             finally:
                 self._shm = None
-        if self._is_tracked:
-            name = getattr(self._descriptor, "name", None)
-            if name:
-                try:
-                    resource_tracker.unregister(name, "shared_memory")
-                except Exception:
-                    pass
-        self._is_tracked = False
 
 
 def create_command_pipe(

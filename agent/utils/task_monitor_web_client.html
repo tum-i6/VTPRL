@@ -1,0 +1,985 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Task Monitor</title>
+<script src="https://cdn.plot.ly/plotly-2.35.0.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/msgpack-lite@0.1.26/dist/msgpack.min.js"></script>
+<style>
+/* ── CSS Variables (dark / light) ─────────────────────────────────── */
+:root{
+  --bg:#0d1117;--bg2:#161b22;--card:#1e222d;--card-border:#30363d;
+  --text:#e6edf3;--text2:#8b949e;--accent:#58a6ff;--accent2:#bc8cff;
+  --grid-line:#21262d;--plotly-template:plotly_dark;
+  --plotly-paper:rgba(0,0,0,0);--plotly-plot:rgba(0,0,0,0);
+  --card-shadow:0 4px 24px rgba(0,0,0,.4);
+  --tbl-even:rgba(255,255,255,.02);--tbl-border:#21262d;
+  --zerolinecolor:#30363d;
+  --scan-bg:#0d1117;--navmesh-bg:#1e222d;
+  --panel-gap:#0d1117;
+}
+html.light{
+  --bg:#f0f0f0;--bg2:#ffffff;--card:#ffffff;--card-border:#d0d0d0;
+  --text:#1f2328;--text2:#57606a;--accent:#0969da;--accent2:#8250df;
+  --grid-line:#d8dee4;--plotly-template:none;
+  --plotly-paper:rgba(255,255,255,0);--plotly-plot:rgba(255,255,255,0);
+  --card-shadow:0 2px 8px rgba(0,0,0,.08);
+  --tbl-even:rgba(0,0,0,.02);--tbl-border:#d8dee4;
+  --zerolinecolor:#d0d7de;
+  --scan-bg:#f0f0f0;--navmesh-bg:#ffffff;
+  --panel-gap:#f0f0f0;
+}
+*{margin:0;padding:0;box-sizing:border-box}
+html,body{height:100%;font-family:'Segoe UI',system-ui,sans-serif;
+  background:var(--bg);color:var(--text);overflow-x:hidden}
+
+/* ── Header ─────────────────────────────────────────────────────────── */
+header{display:flex;align-items:center;gap:14px;padding:8px 16px;
+  background:var(--bg2);border-bottom:1px solid var(--card-border);flex-wrap:wrap}
+header .title{font-size:17px;font-weight:700;
+  background:linear-gradient(90deg,var(--accent),var(--accent2));
+  -webkit-background-clip:text;-webkit-text-fill-color:transparent}
+header label{font-size:12px;color:var(--text2)}
+header select{background:var(--bg2);color:var(--text);border:1px solid var(--card-border);
+  border-radius:6px;padding:3px 8px;font-size:12px;outline:none}
+header select:focus{border-color:var(--accent)}
+.hdr-spacer{flex:1}
+.hdr-btn{background:var(--card);border:1px solid var(--card-border);
+  color:var(--text2);border-radius:6px;padding:3px 10px;cursor:pointer;
+  font-size:13px;line-height:1.4}
+.hdr-btn:hover{color:var(--text);border-color:var(--accent)}
+.status-badge{font-size:11px;padding:2px 8px;border-radius:10px;
+  background:#da3633;color:#fff}
+.status-badge.ok{background:#238636}
+#fps-badge{font-size:11px;padding:2px 8px;border-radius:10px;
+  background:rgba(88,166,255,.15);color:var(--accent)}
+
+/* ── Grid ───────────────────────────────────────────────────────────── */
+#grid{display:flex;gap:0;padding:10px 10px;min-height:0;height:calc(100vh - 44px);background:var(--panel-gap)}
+.col{display:flex;flex-direction:column;gap:10px;overflow:hidden;
+  min-width:100px;padding:0 5px}
+#col-0{flex:45}#col-1{flex:40}#col-2{flex:15}
+
+/* ── resize handles ─ */
+.col-resize{width:6px;cursor:col-resize;background:transparent;
+  flex-shrink:0;position:relative;z-index:5}
+.col-resize:hover,.col-resize.active{background:var(--accent);opacity:.4;border-radius:3px}
+
+/* ── Card ───────────────────────────────────────────────────────────── */
+.card{background:var(--card);border:1px solid var(--card-border);
+  border-radius:10px;overflow:hidden;box-shadow:var(--card-shadow);
+  position:relative;display:flex;flex-direction:column;min-height:0}
+.card-hdr{display:flex;align-items:center;padding:5px 12px;font-size:12px;font-weight:600;
+  color:var(--text2);border-bottom:1px solid var(--grid-line);
+  text-transform:uppercase;letter-spacing:.6px;gap:8px;flex-shrink:0}
+.card-hdr .hdr-toggle{margin-left:auto;font-size:11px;cursor:pointer;
+  background:none;border:none;color:var(--text2);padding:2px 6px}
+.card-hdr .hdr-toggle:hover{color:var(--text)}
+.card-body{padding:4px;position:relative;min-height:0;overflow:hidden;flex:1}
+.card-body .plot{width:100%;height:100%}
+
+/* ── Panels dropdown menu ───────────────────────────────────────────── */
+.panels-wrap{position:relative;display:inline-block}
+.panels-menu{display:none;position:absolute;top:100%;right:0;z-index:200;
+  min-width:180px;max-height:70vh;overflow-y:auto;
+  background:var(--card);border:1px solid var(--card-border);
+  border-radius:8px;box-shadow:var(--card-shadow);padding:6px 0;margin-top:4px}
+.panels-menu.open{display:block}
+.panels-menu label.pm-col{font-weight:600}
+.panels-menu label.pm-panel{padding-left:28px;font-size:11px}
+.panels-menu label{display:flex;align-items:center;gap:6px;padding:4px 12px;
+  font-size:12px;color:var(--text);cursor:pointer;white-space:nowrap}
+.panels-menu label:hover{background:rgba(88,166,255,.08)}
+.panels-menu input{accent-color:var(--accent)}
+.panels-menu hr{border:none;border-top:1px solid var(--card-border);margin:4px 0}
+
+/* ── Planner / Obstacle-map checkboxes ──────────────────────────────── */
+.planner-opts{display:flex;flex-wrap:wrap;gap:4px 10px;padding:2px 8px;
+  font-size:11px;color:var(--text2)}
+.planner-opts label{display:flex;align-items:center;gap:3px;cursor:pointer}
+.planner-opts input{accent-color:var(--accent)}
+
+/* ── Obstacle-map tabs ──────────────────────────────────────────────── */
+.obs-tabs{display:flex;gap:0;margin:4px 4px 0}
+.obs-tab-btn{flex:1;padding:4px 0;font-size:11px;text-align:center;
+  background:transparent;border:none;color:var(--text2);cursor:pointer;
+  border-bottom:2px solid transparent;transition:all .15s}
+.obs-tab-btn:hover{color:var(--text)}
+.obs-tab-btn.active{color:var(--accent);border-bottom-color:var(--accent)}
+
+/* ── Camera ─────────────────────────────────────────────────────────── */
+.cam-ctrl{display:flex;align-items:center;justify-content:center;gap:8px;padding:4px}
+.cam-ctrl button{background:var(--card);border:1px solid var(--card-border);
+  color:var(--text);border-radius:6px;padding:2px 10px;cursor:pointer;font-size:13px}
+.cam-ctrl button:hover{background:var(--card-border)}
+#cam-img{width:100%;max-height:100%;object-fit:contain;border-radius:8px;display:block;margin:auto}
+
+/* ── Telemetry table ────────────────────────────────────────────────── */
+.telem-tbl{width:100%;border-collapse:collapse;font-size:12px}
+.telem-tbl td{padding:3px 8px;border-bottom:1px solid var(--tbl-border)}
+.telem-tbl td:first-child{color:var(--text2);white-space:nowrap}
+.telem-tbl tr:nth-child(even){background:var(--tbl-even)}
+
+/* ── Laser view mode toggle ─────────────────────────────────────────── */
+.laser-mode-btn{font-size:11px;cursor:pointer;background:none;
+  border:1px solid var(--card-border);color:var(--text2);
+  border-radius:4px;padding:1px 7px}
+.laser-mode-btn:hover{color:var(--text);border-color:var(--accent)}
+
+/* ── Misc ───────────────────────────────────────────────────────────── */
+.no-data{text-align:center;color:var(--text2);padding:32px;font-size:13px}
+.js-plotly-plot .plotly .modebar{display:none!important}
+</style>
+</head>
+<body>
+
+<!-- ═══ Header ═══════════════════════════════════════════════════════ -->
+<header>
+  <span class="title">Task Monitor</span>
+  <label>Environment:</label>
+  <select id="sel-env"></select>
+  <label>Robot:</label>
+  <select id="sel-robot"></select>
+  <span class="hdr-spacer"></span>
+  <span id="fps-badge">-- FPS</span>
+  <span class="panels-wrap">
+    <button id="btn-panels" class="hdr-btn" title="Show / hide panels">Panels &#9662;</button>
+    <div id="panels-menu" class="panels-menu"></div>
+  </span>
+  <button id="btn-theme" class="hdr-btn" title="Toggle dark/light mode">&#9788;</button>
+  <span id="ws-badge" class="status-badge">Connecting&hellip;</span>
+</header>
+
+<!-- ═══ Main grid ════════════════════════════════════════════════════ -->
+<div id="grid">
+
+  <!-- Column 0 -->
+  <div class="col" id="col-0">
+    <div class="card" id="card-joint-pos" style="display:none">
+      <div class="card-hdr">Joint Position</div>
+      <div class="card-body"><div id="fig-joint-pos" class="plot"></div></div>
+    </div>
+    <div class="card" id="card-joint-vel" style="display:none">
+      <div class="card-hdr">Joint Velocity</div>
+      <div class="card-body"><div id="fig-joint-vel" class="plot"></div></div>
+    </div>
+    <div class="card" id="card-joint-acc" style="display:none">
+      <div class="card-hdr">Joint Acceleration</div>
+      <div class="card-body"><div id="fig-joint-acc" class="plot"></div></div>
+    </div>
+    <div class="card" id="card-joint-trq" style="display:none">
+      <div class="card-hdr">Joint Torque</div>
+      <div class="card-body"><div id="fig-joint-trq" class="plot"></div></div>
+    </div>
+    <div class="card" id="card-agent-state">
+      <div class="card-hdr">Agent State</div>
+      <div class="card-body"><div id="fig-agent-state" class="plot"></div></div>
+    </div>
+    <div class="card" id="card-agent-action">
+      <div class="card-hdr">Agent Action</div>
+      <div class="card-body"><div id="fig-agent-action" class="plot"></div></div>
+    </div>
+    <div class="card" id="card-camera">
+      <div class="card-hdr">Agent Image</div>
+      <div class="card-body">
+        <div class="cam-ctrl">
+          <button id="cam-prev">&#9664;</button>
+          <span id="cam-status">No cameras</span>
+          <button id="cam-next">&#9654;</button>
+        </div>
+        <img id="cam-img" alt="camera" style="display:none">
+        <p id="cam-none" class="no-data">Waiting for camera&hellip;</p>
+      </div>
+    </div>
+    <div class="card" id="card-telemetry" style="display:none">
+      <div class="card-hdr">Robot Telemetry</div>
+      <div class="card-body" style="overflow-y:auto"><table id="telem-tbl" class="telem-tbl"></table></div>
+    </div>
+  </div>
+
+  <div class="col-resize" id="resize-0"></div>
+
+  <!-- Column 1 -->
+  <div class="col" id="col-1">
+    <div class="card" id="card-laser" style="display:none">
+      <div class="card-hdr">
+        Laser Scan
+        <button class="laser-mode-btn hdr-toggle" id="laser-mode-btn" title="Toggle points / rays">rays</button>
+      </div>
+      <div class="card-body"><div id="fig-laser" class="plot"></div></div>
+    </div>
+    <div class="card" id="card-obstacle" style="display:none">
+      <div class="card-hdr">Obstacle Map</div>
+      <div class="card-body">
+        <div class="obs-tabs">
+          <button class="obs-tab-btn active" data-tab="navmesh">NavMesh</button>
+          <button class="obs-tab-btn" data-tab="occupancy">Occupancy</button>
+          <button class="obs-tab-btn" data-tab="costmap">Costmap</button>
+        </div>
+        <div id="fig-obstacle" class="plot"></div>
+      </div>
+    </div>
+    <div class="card" id="card-planner" style="display:none">
+      <div class="card-hdr">Planning Map</div>
+      <div class="card-body">
+        <div class="planner-opts" id="planner-opts">
+          <label><input type="checkbox" data-layer="occupancy" checked>Occupancy</label>
+          <label><input type="checkbox" data-layer="costmap" checked>Costmap</label>
+          <label><input type="checkbox" data-layer="global_path" checked>Global path</label>
+          <label><input type="checkbox" data-layer="local_traj" checked>Local traj</label>
+          <label><input type="checkbox" data-layer="robot" checked>Robot</label>
+          <label><input type="checkbox" data-layer="target" checked>Target</label>
+          <label><input type="checkbox" data-layer="laser">Laser cloud</label>
+        </div>
+        <div id="fig-planner" class="plot"></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="col-resize" id="resize-1"></div>
+
+  <!-- Column 2 -->
+  <div class="col" id="col-2">
+    <div class="card" id="card-reward">
+      <div class="card-hdr">Reward</div>
+      <div class="card-body"><div id="fig-reward" class="plot"></div></div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══ Application JS ══════════════════════════════════════════════ -->
+<script>
+"use strict";
+
+/* ── Theme helpers ────────────────────────────────────────────────── */
+let darkMode = false;
+function applyTheme() {
+  document.documentElement.classList.toggle('light', !darkMode);
+  initialized = {};
+  cachedObstacle = {};
+  navmeshExtent = null;
+}
+
+/* ── Plotly base layout — rebuilt on theme switch ─────────────────── */
+function baseLayout() {
+  const cs = getComputedStyle(document.documentElement);
+  return {
+    paper_bgcolor: cs.getPropertyValue('--plotly-paper').trim(),
+    plot_bgcolor: cs.getPropertyValue('--plotly-plot').trim(),
+    margin:{l:40,r:10,t:30,b:40},
+    font:{color: cs.getPropertyValue('--text').trim(), size:11},
+    dragmode:false,
+  };
+}
+const CFG = {displayModeBar:false, staticPlot:false, responsive:true};
+function mkLayout(extra) { return Object.assign({}, baseLayout(), extra); }
+
+/* ── State ─────────────────────────────────────────────────────────── */
+let ws = null;
+let currentEnvId = null;
+let currentRobotIdx = 0;
+let camIdx = 0;
+let laserMode = 'rays';  // 'points' | 'rays'
+let initialized = {};
+let cachedObstacle = {};    // tab -> data
+let navmeshExtent = null;   // {cx, cy, extent, xHalf, yHalf} — locked on first navmesh frame
+let obstacleTab = 'navmesh';
+let cameraFrames = [];
+let cameraLabels = [];
+let pendingFrame = null;
+let rafId = null;
+let frameCount = 0;
+let lastFpsTime = performance.now();
+let lastEnvType = '';
+let latestLaserFrame = null;
+let latestPlannerFrame = null;
+
+/* Planner layer visibility */
+const plannerLayers = {
+  occupancy:true, costmap:true, global_path:true,
+  local_traj:true, robot:true, target:true, laser:false
+};
+
+/* Per-environment layout configuration */
+const envLayouts = {
+  manipulator: {
+    columns: [
+      {idx:0, label:'Kinematics', stretch:45},
+      {idx:1, label:'Controller', stretch:40},
+      {idx:2, label:'Rewards & Events', stretch:15},
+    ],
+    panels: [
+      {id:'card-joint-pos',    label:'Joint Position',     col:0, scale:1},
+      {id:'card-joint-vel',    label:'Joint Velocity',     col:0, scale:1},
+      {id:'card-joint-acc',    label:'Joint Acceleration', col:0, scale:1, hidden:true},
+      {id:'card-joint-trq',    label:'Joint Torque',       col:0, scale:1},
+      {id:'card-agent-state',  label:'Agent State',        col:1, scale:1},
+      {id:'card-agent-action', label:'Agent Action',       col:1, scale:1},
+      {id:'card-camera',       label:'Agent Image',        col:1, scale:1},
+      {id:'card-reward',       label:'Reward',             col:2, scale:1},
+    ],
+  },
+  warehouse: {
+    columns: [
+      {idx:0, label:'State & Telemetry', stretch:35},
+      {idx:1, label:'Perception', stretch:50},
+      {idx:2, label:'Rewards & Events', stretch:15},
+    ],
+    panels: [
+      {id:'card-agent-state',  label:'Agent State',       col:0, scale:12},
+      {id:'card-agent-action', label:'Agent Action',      col:0, scale:6},
+      {id:'card-camera',       label:'Agent Image',       col:0, scale:16},
+      {id:'card-telemetry',    label:'Robot Telemetry',   col:0, scale:7},
+      {id:'card-laser',        label:'Laser Scan',        col:1, scale:1},
+      {id:'card-obstacle',     label:'Obstacle Map',      col:1, scale:1},
+      {id:'card-planner',      label:'Planning Map',      col:1, scale:1},
+      {id:'card-reward',       label:'Reward',            col:2, scale:1},
+    ],
+  },
+};
+
+const panelEnabled = {};
+const columnEnabled = {0:true, 1:true, 2:true};
+let currentLayout = null;
+
+/* Apply layout for the given environment type */
+function applyEnvLayout(envType) {
+  currentLayout = envLayouts[envType];
+  if (!currentLayout) return;
+  lastEnvType = envType;
+
+  // Initialise panelEnabled for panels in this layout (preserve existing prefs)
+  for (const p of currentLayout.panels) {
+    if (panelEnabled[p.id] === undefined) panelEnabled[p.id] = !p.hidden;
+  }
+
+  // Hide every card first
+  document.querySelectorAll('.card').forEach(c => c.style.display = 'none');
+
+  // Move cards into the correct columns in order
+  const colEls = [document.getElementById('col-0'),
+                  document.getElementById('col-1'),
+                  document.getElementById('col-2')];
+  for (const p of currentLayout.panels) {
+    const card = document.getElementById(p.id);
+    if (card) colEls[p.col].appendChild(card);
+  }
+
+  // Reset column visibility and stretch
+  columnEnabled[0] = true; columnEnabled[1] = true; columnEnabled[2] = true;
+  for (const c of currentLayout.columns) {
+    const col = document.getElementById('col-' + c.idx);
+    if (col) { col.style.display = ''; col.style.flex = String(c.stretch); }
+  }
+
+  buildPanelsMenu();
+  refreshPanelVisibility();
+}
+
+function refreshPanelVisibility() {
+  if (!currentLayout) return;
+  // Panels — set visibility and proportional flex
+  for (const p of currentLayout.panels) {
+    const el = document.getElementById(p.id);
+    if (!el) continue;
+    const vis = panelEnabled[p.id] !== false;
+    el.style.display = vis ? '' : 'none';
+    if (vis) el.style.flex = String(p.scale || 1) + ' 1 0';
+  }
+  // Columns — reset flex so hidden columns' space is reclaimed
+  for (const c of currentLayout.columns) {
+    const col = document.getElementById('col-' + c.idx);
+    if (!col) continue;
+    if (columnEnabled[c.idx]) {
+      col.style.display = '';
+      col.style.flex = String(c.stretch);
+    } else {
+      col.style.display = 'none';
+    }
+  }
+  // Resize handles between adjacent visible columns
+  const r0 = document.getElementById('resize-0');
+  const r1 = document.getElementById('resize-1');
+  if (r0) r0.style.display = (columnEnabled[0] && columnEnabled[1]) ? '' : 'none';
+  if (r1) r1.style.display = (columnEnabled[1] && columnEnabled[2]) ? '' : 'none';
+  scalePanels();
+}
+
+/* Build panels dropdown grouped by column sections */
+function buildPanelsMenu() {
+  const menu = document.getElementById('panels-menu');
+  menu.innerHTML = '';
+  if (!currentLayout) return;
+
+  currentLayout.columns.forEach((c, ci) => {
+    if (ci > 0) menu.appendChild(document.createElement('hr'));
+    // Column toggle
+    const colLbl = document.createElement('label');
+    colLbl.className = 'pm-col';
+    const colCb = document.createElement('input');
+    colCb.type = 'checkbox'; colCb.checked = columnEnabled[c.idx];
+    colCb.addEventListener('change', () => {
+      columnEnabled[c.idx] = colCb.checked;
+      refreshPanelVisibility();
+    });
+    colLbl.appendChild(colCb);
+    colLbl.appendChild(document.createTextNode(c.label));
+    menu.appendChild(colLbl);
+
+    // Panel toggles for this column
+    for (const p of currentLayout.panels.filter(pp => pp.col === c.idx)) {
+      const lbl = document.createElement('label');
+      lbl.className = 'pm-panel';
+      const cb = document.createElement('input');
+      cb.type = 'checkbox'; cb.checked = panelEnabled[p.id] !== false;
+      cb.addEventListener('change', () => {
+        panelEnabled[p.id] = cb.checked;
+        refreshPanelVisibility();
+      });
+      lbl.appendChild(cb);
+      lbl.appendChild(document.createTextNode(p.label));
+      menu.appendChild(lbl);
+    }
+  });
+}
+
+/* ── Panel scaling helpers ─────────────────────────────────────────── */
+function scalePanels() {
+  document.querySelectorAll('.plot').forEach(el => {
+    if (!el.data) return;
+    const card = el.closest('.card');
+    if (!card || card.style.display === 'none') return;
+    Plotly.Plots.resize(el);
+  });
+  // Re-render spatial overlays so marker/line sizes track panel dimensions.
+  const laserCard = document.getElementById('card-laser');
+  if (latestLaserFrame && laserCard && laserCard.style.display !== 'none') {
+    createLaser('fig-laser', latestLaserFrame);
+    initialized['fig-laser'] = true;
+  }
+  const plannerCard = document.getElementById('card-planner');
+  if (latestPlannerFrame && plannerCard && plannerCard.style.display !== 'none') {
+    renderPlanner('fig-planner', latestPlannerFrame);
+    initialized['fig-planner'] = true;
+  }
+}
+
+function panelScaledSize(id, base, refPx = 380, minSize = 1, maxSize = 64) {
+  const el = document.getElementById(id);
+  const w = el ? el.clientWidth : refPx;
+  const h = el ? el.clientHeight : refPx;
+  const panelPx = Math.max(1, Math.min(w || refPx, h || refPx));
+  const scaled = base * (panelPx / refPx);
+  return Math.max(minSize, Math.min(maxSize, scaled));
+}
+
+/* ── WebSocket ─────────────────────────────────────────────────────── */
+function connect() {
+  const proto = location.protocol === 'https:' ? 'wss' : 'ws';
+  ws = new WebSocket(proto + '://' + location.host + '/ws');
+  ws.binaryType = 'arraybuffer';
+  ws.onopen = () => {
+    setBadge(true);
+    if (currentEnvId !== null) sendSelection();
+  };
+  ws.onmessage = (ev) => {
+    pendingFrame = ev.data;           // store raw ArrayBuffer (no decode yet)
+    if (!rafId) {
+      rafId = requestAnimationFrame(() => {
+        rafId = null;
+        const raw = pendingFrame;
+        pendingFrame = null;
+        if (raw) {
+          try {
+            const frame = msgpack.decode(new Uint8Array(raw));
+            renderFrame(frame);
+          } catch(e) { console.error('decode/render error:', e); }
+          // ack: tell server we are ready for next frame
+          if (ws.readyState === 1) ws.send('{"ack":true}');
+        }
+      });
+    }
+  };
+  ws.onclose = () => { setBadge(false); setTimeout(connect, 2000); };
+  ws.onerror = () => { ws.close(); };
+}
+function setBadge(ok) {
+  const b = document.getElementById('ws-badge');
+  b.textContent = ok ? 'Connected' : 'Reconnecting\u2026';
+  b.className = 'status-badge' + (ok ? ' ok' : '');
+}
+function sendSelection() {
+  if (ws && ws.readyState === 1)
+    ws.send(JSON.stringify({env_id: currentEnvId, robot_idx: currentRobotIdx}));
+}
+
+/* ── FPS ───────────────────────────────────────────────────────────── */
+function tickFps() {
+  frameCount++;
+  const now = performance.now();
+  if (now - lastFpsTime >= 1000) {
+    document.getElementById('fps-badge').textContent = frameCount + ' FPS';
+    frameCount = 0; lastFpsTime = now;
+  }
+}
+
+/* ── Plotly helpers ────────────────────────────────────────────────── */
+/* ── Horizontal bar (agent state/action, joints) ─────────────────── */
+function createHBar(id, d) {
+  const tr = [{
+    type:'bar', orientation:'h', x:d.values, y:d.labels,
+    marker:{color:d.color},
+    hovertemplate:'%{y}: %{x:.3f}<extra></extra>',
+  }];
+  if (d.range_color) {
+    tr.push({type:'bar',orientation:'h',x:d.lo,y:d.labels,
+      marker:{color:d.range_color},opacity:.35,showlegend:false,hoverinfo:'skip'});
+    tr.push({type:'bar',orientation:'h',x:d.hi,y:d.labels,
+      marker:{color:d.range_color},opacity:.35,showlegend:false,hoverinfo:'skip'});
+  }
+  const lo = Math.min(...d.lo), hi = Math.max(...d.hi);
+  Plotly.newPlot(id, tr, mkLayout({
+    title:{text:d.title,font:{size:13}},
+    barmode:'overlay',
+    xaxis:{range:[lo,hi],showgrid:false,zeroline:false},
+    yaxis:{showgrid:false,tickfont:{size:10},dtick:1},
+    showlegend:false,
+    autosize:true,
+  }), CFG);
+}
+function updateHBar(id, d) {
+  Plotly.restyle(id, {x:[d.values],'marker.color':[d.color]}, [0]);
+}
+
+/* ── Vertical bar (reward) ────────────────────────────────────────── */
+function createVBar(id, d) {
+  const clr = d.values.map(v => v >= 0 ? 'rgb(0,153,0)' : 'rgb(204,0,0)');
+  Plotly.newPlot(id, [{
+    type:'bar', x:d.labels, y:d.values, marker:{color:clr},
+    hovertemplate:'%{x}: %{y:.4f}<extra></extra>',
+  }], mkLayout({
+    title:{text:d.title,font:{size:13}},
+    yaxis:{range:[Math.min(...d.lo),Math.max(...d.hi)],showgrid:false,
+      zeroline:true,zerolinecolor:getComputedStyle(document.documentElement)
+        .getPropertyValue('--zerolinecolor').trim()},
+    xaxis:{showgrid:false,tickfont:{size:10}},
+    showlegend:false,
+  }), CFG);
+}
+function updateVBar(id, d) {
+  const clr = d.values.map(v => v >= 0 ? 'rgb(0,153,0)' : 'rgb(204,0,0)');
+  Plotly.restyle(id, {y:[d.values],'marker.color':[clr]}, [0]);
+}
+
+/* ── PacMan robot shapes for laser scan ──────────────────────────── */
+function pacmanShapes(rx, ry, yaw, ext) {
+  const r = Math.max(ext * 0.04, 0.15);
+  const halfAngle = 35 * Math.PI / 180;
+  const segments = 12;
+  const bgColor = getComputedStyle(document.documentElement)
+    .getPropertyValue('--scan-bg').trim();
+  // Mouth wedge path
+  let path = 'M ' + rx + ' ' + ry;
+  for (let i = 0; i <= segments; i++) {
+    const t = i / segments;
+    const a = yaw - halfAngle + 2 * halfAngle * t;
+    path += ' L ' + (rx - r * Math.cos(a)) + ' ' + (ry + r * Math.sin(a));
+  }
+  path += ' Z';
+  return [
+    {type:'circle',xref:'x',yref:'y',
+     x0:rx-r,y0:ry-r,x1:rx+r,y1:ry+r,
+     fillcolor:'rgba(255,204,0,0.86)',line:{width:0}},
+    {type:'path',path:path,
+     fillcolor:bgColor,line:{width:0}},
+  ];
+}
+
+/* ── Laser scan ──────────────────────────────────────────────────── */
+function createLaser(id, d) {
+  const ext = d.extent;
+  const xHalf = d.bounds && Number.isFinite(d.bounds.x_half) ? d.bounds.x_half : ext;
+  const yHalf = d.bounds && Number.isFinite(d.bounds.y_half) ? d.bounds.y_half : ext;
+  const scanMarkerSize = panelScaledSize(id, 3, 380, 2, 12);
+  const rayMarkerSize = panelScaledSize(id, 3, 380, 2, 12);
+  const rayLineWidth = panelScaledSize(id, 1, 380, 0.7, 4);
+  const traces = [];
+  if (laserMode === 'rays' && d.sx !== undefined) {
+    const rx = [], ry = [];
+    for (let i = 0; i < d.x.length; i++) {
+      rx.push(d.sx, d.x[i], null);
+      ry.push(d.sy, d.y[i], null);
+    }
+    traces.push({type:'scatter',mode:'lines',x:rx,y:ry,
+      line:{color:'rgba(0,102,204,0.35)',width:rayLineWidth},hoverinfo:'skip',showlegend:false});
+    traces.push({type:'scattergl',mode:'markers',x:d.x,y:d.y,
+      marker:{size:rayMarkerSize,color:'rgba(0,102,204,0.55)'},hoverinfo:'skip',showlegend:false});
+  } else {
+    traces.push({type:'scattergl',mode:'markers',x:d.x,y:d.y,
+      marker:{size:scanMarkerSize,color:'rgba(0,102,204,0.63)'},hoverinfo:'skip',showlegend:false});
+  }
+  // Center at warehouse origin (0,0)
+  Plotly.newPlot(id, traces, mkLayout({
+    title:{text:'Laser Scan',font:{size:13}},
+    xaxis:{scaleanchor:'y',scaleratio:1,autorange:false,
+      range:[xHalf,-xHalf],showgrid:false,zeroline:false},
+    yaxis:{range:[-yHalf,yHalf],showgrid:false,zeroline:false,autorange:false},
+    showlegend:false,
+    shapes: pacmanShapes(d.rx, d.ry, d.yaw, ext),
+  }), CFG);
+}
+function updateLaser(id, d) {
+  initialized[id] = false;
+  createLaser(id, d);
+  initialized[id] = true;
+}
+
+/* ── Obstacle Map (tabbed: NavMesh / Occupancy / Costmap) ────────── */
+function renderObstacle() {
+  const id = 'fig-obstacle';
+  const navRobotMarkerSize = panelScaledSize(id, 10, 420, 6, 26);
+  const navRobotLineWidth = panelScaledSize(id, 2, 420, 1, 6);
+  const d = cachedObstacle[obstacleTab];
+  if (!d) {
+    document.getElementById(id).innerHTML = '<p class="no-data">No data</p>';
+    initialized[id] = false;
+    return;
+  }
+  if (obstacleTab === 'navmesh') {
+    // Lock extent on first navmesh frame so the view stays fixed
+    if (!navmeshExtent) {
+      navmeshExtent = {
+        cx: d.cx,
+        cy: d.cy,
+        extent: d.extent,
+        xHalf: d.bounds && Number.isFinite(d.bounds.x_half) ? d.bounds.x_half : d.extent,
+        yHalf: d.bounds && Number.isFinite(d.bounds.y_half) ? d.bounds.y_half : d.extent,
+      };
+    }
+    const ne = navmeshExtent;
+    const traces = [
+      {type:'scatter',mode:'none',x:d.edge_x,y:d.edge_y,
+       fill:'toself',fillcolor:'rgba(0,153,255,0.27)',
+       hoverinfo:'skip',showlegend:false},
+      {type:'scatter',mode:'lines',x:d.edge_x,y:d.edge_y,
+       line:{color:'rgb(0,102,204)',width:1},hoverinfo:'skip',showlegend:false},
+    ];
+    if (d.robot) {
+      const rx = (d.robot.x[0]+d.robot.x[1]+d.robot.x[2]) / 3;
+      const ry = (d.robot.y[0]+d.robot.y[1]+d.robot.y[2]) / 3;
+      traces.push({type:'scatter',mode:'markers',x:[rx],y:[ry],
+        marker:{size:navRobotMarkerSize,color:'rgba(220,80,80,0.71)',
+          line:{color:'rgb(180,50,50)',width:1}},
+        hoverinfo:'skip',showlegend:false});
+      traces.push({type:'scatter',mode:'lines',
+        x:[rx,d.robot.x[0]],y:[ry,d.robot.y[0]],
+        line:{color:'rgb(180,50,50)',width:navRobotLineWidth},hoverinfo:'skip',showlegend:false});
+    }
+    Plotly.react(id, traces, mkLayout({
+      title:{text:'NavMesh',font:{size:13}},
+      xaxis:{scaleanchor:'y',scaleratio:1,autorange:false,
+        range:[ne.cx+ne.xHalf,ne.cx-ne.xHalf],showgrid:false,zeroline:false},
+      yaxis:{range:[ne.cy-ne.yHalf,ne.cy+ne.yHalf],showgrid:false,zeroline:false,autorange:false},
+      showlegend:false,
+    }), CFG);
+  } else {
+    const title = obstacleTab === 'occupancy' ? 'Occupancy Grid' : 'Cost Map';
+    const cs = obstacleTab === 'occupancy'
+      ? [[0,'rgb(0,0,0)'],[0.667,'rgb(170,170,170)'],[1,'rgb(255,255,255)']]
+      : [[0,'rgb(0,210,140)'],[1,'rgb(255,40,20)']];
+    Plotly.react(id, [{
+      type:'heatmap', z:d.z, x0:d.x0+0.5*d.dx, dx:d.dx, y0:d.y0+0.5*d.dy, dy:d.dy,
+      colorscale:cs, showscale:false,
+    }], mkLayout({
+      title:{text:title,font:{size:13}},
+      margin:{l:52,r:16,t:34,b:58,pad:2},
+      xaxis:{scaleanchor:'y',scaleratio:1,showgrid:false,autorange:'reversed',constrain:'domain',automargin:true},
+      yaxis:{showgrid:false,constrain:'domain',automargin:true},
+    }), CFG);
+  }
+  initialized[id] = true;
+}
+
+/* ── Planning map (composite with toggleable layers) ─────────────── */
+function renderPlanner(id, d) {
+  const laserSize = panelScaledSize(id, 3, 420, 4, 16);
+  const globalLineWidth = panelScaledSize(id, 3, 420, 2, 8);
+  const localLineWidth = panelScaledSize(id, 4, 420, 3, 10);
+  const targetSize = panelScaledSize(id, 14, 420, 9, 28);
+  const robotLineWidth = panelScaledSize(id, 7, 420, 2, 10);
+  const tr = [];
+  const L = plannerLayers;
+
+  // Occupancy heatmap (grayscale: occupied=dark, free=light)
+  if (L.occupancy && d.occupancy) {
+    tr.push({type:'heatmap',z:d.occupancy.z,
+      x0:d.occupancy.x0+0.5*d.occupancy.dx,dx:d.occupancy.dx,y0:d.occupancy.y0+0.5*d.occupancy.dy,dy:d.occupancy.dy,
+      colorscale:[
+        [0.0,'rgba(0,0,0,0.86)'],
+        [0.5,'rgba(40,40,40,0.86)'],
+        [0.5001,'rgba(210,210,210,0.31)'],
+        [0.667,'rgba(190,190,190,0.47)'],
+        [1.0,'rgba(210,210,210,0.31)']
+      ],
+      showscale:false,opacity:1,hoverinfo:'skip'});
+  }
+  // Costmap heatmap (warm: green→red)
+  if (L.costmap && d.costmap) {
+    tr.push({type:'heatmap',z:d.costmap.z,
+      x0:d.costmap.x0+0.5*d.costmap.dx,dx:d.costmap.dx,y0:d.costmap.y0+0.5*d.costmap.dy,dy:d.costmap.dy,
+      colorscale:[[0,'rgb(0,210,140)'],[1,'rgb(255,40,20)']],
+      showscale:false,opacity:.4,hoverinfo:'skip'});
+  }
+  // Laser cloud overlay
+  if (L.laser && d.laser) {
+    tr.push({type:'scattergl',mode:'markers',x:d.laser.x,y:d.laser.y,
+      marker:{size:laserSize,color:'rgba(0,130,255,0.67)'},
+      name:'Laser cloud',hoverinfo:'skip'});
+  }
+  // Global path
+  if (L.global_path && d.global_path) {
+    tr.push({type:'scattergl',mode:'lines',x:d.global_path.x,y:d.global_path.y,
+      line:{color:'rgb(0,92,184)',width:globalLineWidth},name:'Global path'});
+  }
+  // Local trajectory (merged DWA + P)
+  if (L.local_traj && d.local_traj) {
+    tr.push({type:'scattergl',mode:'lines',x:d.local_traj.x,y:d.local_traj.y,
+      line:{color:'rgb(165,30,150)',width:localLineWidth},name:'Local traj'});
+  }
+  // Target
+  if (L.target && d.target) {
+    tr.push({type:'scatter',mode:'markers',
+      x:[d.target.x],y:[d.target.y],
+      marker:{size:targetSize,color:'rgb(204,0,0)',symbol:'star'},name:'Target'});
+  }
+  // Robot (green triangle)
+  if (L.robot && d.robot) {
+    tr.push({type:'scatter',mode:'lines',x:d.robot.x,y:d.robot.y,
+      fill:'toself',fillcolor:'rgb(0,153,0)',
+      line:{color:'rgb(0,153,0)',width:robotLineWidth},name:'Robot',hoverinfo:'skip'});
+  }
+
+  const ext = d.extent || 10;
+  const xHalf = d.bounds && Number.isFinite(d.bounds.x_half) ? d.bounds.x_half : ext;
+  const yHalf = d.bounds && Number.isFinite(d.bounds.y_half) ? d.bounds.y_half : ext;
+  Plotly.react(id, tr, mkLayout({
+    title:{text:'Planning Map',font:{size:13}},
+    xaxis:{range:[xHalf,-xHalf],showgrid:false,zeroline:false,autorange:false,
+      scaleanchor:'y',scaleratio:1},
+    yaxis:{range:[-yHalf,yHalf],showgrid:false,zeroline:false,autorange:false},
+    showlegend:false,
+  }), CFG);
+}
+
+/* ── Camera ────────────────────────────────────────────────────────── */
+function renderCamera() {
+  const img = document.getElementById('cam-img');
+  const none = document.getElementById('cam-none');
+  const st = document.getElementById('cam-status');
+  if (!cameraFrames.length) {
+    img.style.display = 'none'; none.style.display = '';
+    st.textContent = 'No cameras'; return;
+  }
+  if (camIdx >= cameraFrames.length) camIdx = 0;
+  img.src = 'data:image/png;base64,' + cameraFrames[camIdx];
+  img.style.display = 'block'; none.style.display = 'none';
+  st.textContent = cameraLabels[camIdx] + ' (' + (camIdx+1) + '/' + cameraFrames.length + ')';
+}
+
+/* ── Telemetry table ──────────────────────────────────────────────── */
+function renderTelemetry(rows) {
+  const tbl = document.getElementById('telem-tbl');
+  let html = '';
+  for (const r of rows) {
+    html += '<tr><td>' + r.label + '</td><td>' + r.value + '</td></tr>';
+  }
+  tbl.innerHTML = html;
+}
+
+/* ── Dropdown sync ────────────────────────────────────────────────── */
+function syncDropdown(selId, options, currentVal) {
+  const sel = document.getElementById(selId);
+  const optVals = options.map(o => String(o.value));
+  const existing = Array.from(sel.options).map(o => o.value);
+  if (JSON.stringify(optVals) === JSON.stringify(existing)) return;
+  sel.innerHTML = '';
+  for (const o of options) {
+    const opt = document.createElement('option');
+    opt.value = o.value; opt.textContent = o.label;
+    if (String(o.value) === String(currentVal)) opt.selected = true;
+    sel.appendChild(opt);
+  }
+}
+
+/* ── Main render ──────────────────────────────────────────────────── */
+function renderFrame(f) {
+  tickFps();
+  if (f.first) { initialized = {}; cachedObstacle = {}; navmeshExtent = null; }
+
+  if (f.envs) syncDropdown('sel-env', f.envs, f.env_id);
+  if (f.robots) syncDropdown('sel-robot', f.robots, currentRobotIdx);
+
+  if (f.env_type && f.env_type !== lastEnvType) {
+    applyEnvLayout(f.env_type);
+  }
+
+  // ── Horizontal bars
+  const hbars = [
+    ['agent_state','fig-agent-state'],['agent_action','fig-agent-action'],
+    ['joint_position','fig-joint-pos'],['joint_velocity','fig-joint-vel'],
+    ['joint_acceleration','fig-joint-acc'],['joint_torque','fig-joint-trq'],
+  ];
+  for (const [key, div] of hbars) {
+    if (!f[key]) continue;
+    if (!initialized[div]) { createHBar(div, f[key]); initialized[div] = true; }
+    else updateHBar(div, f[key]);
+  }
+
+  // ── Reward
+  if (f.agent_reward) {
+    const div = 'fig-reward';
+    if (!initialized[div]) { createVBar(div, f.agent_reward); initialized[div] = true; }
+    else updateVBar(div, f.agent_reward);
+  }
+
+  // ── Laser scan
+  if (f.laser_scan && f.laser_scan.x) {
+    const div = 'fig-laser';
+    latestLaserFrame = f.laser_scan;
+    if (!initialized[div]) { createLaser(div, f.laser_scan); initialized[div] = true; }
+    else updateLaser(div, f.laser_scan);
+  }
+
+  // ── Obstacle map (tabbed: navmesh / occupancy / costmap)
+  let obsChanged = false;
+  if (f.navmesh)   { cachedObstacle.navmesh   = f.navmesh;   obsChanged = true; }
+  if (f.occupancy) { cachedObstacle.occupancy = f.occupancy;  obsChanged = true; }
+  if (f.costmap)   { cachedObstacle.costmap   = f.costmap;    obsChanged = true; }
+  if (obsChanged || !initialized['fig-obstacle']) renderObstacle();
+
+  // ── Planner
+  if (f.planner) renderPlanner('fig-planner', f.planner);
+  if (f.planner) latestPlannerFrame = f.planner;
+
+  // ── Camera
+  if (f.camera) {
+    cameraFrames = f.camera.frames || [];
+    cameraLabels = f.camera.labels || [];
+    renderCamera();
+  }
+
+  // ── Telemetry
+  if (f.telemetry) renderTelemetry(f.telemetry);
+}
+
+/* ── UI Events ────────────────────────────────────────────────────── */
+document.getElementById('sel-env').addEventListener('change', function() {
+  currentEnvId = isNaN(this.value) ? this.value : Number(this.value);
+  initialized = {}; cachedObstacle = {}; navmeshExtent = null; sendSelection();
+});
+document.getElementById('sel-robot').addEventListener('change', function() {
+  currentRobotIdx = Number(this.value);
+  initialized = {}; cachedObstacle = {}; navmeshExtent = null; sendSelection();
+});
+
+// Dark / light toggle
+document.getElementById('btn-theme').addEventListener('click', () => {
+  darkMode = !darkMode;
+  document.getElementById('btn-theme').textContent = darkMode ? '\u263D' : '\u2600';
+  applyTheme();
+});
+
+// Obstacle map tabs
+document.querySelectorAll('.obs-tab-btn').forEach(btn => {
+  btn.addEventListener('click', function() {
+    document.querySelectorAll('.obs-tab-btn').forEach(b => b.classList.remove('active'));
+    this.classList.add('active');
+    obstacleTab = this.dataset.tab;
+    initialized['fig-obstacle'] = false;
+    renderObstacle();
+  });
+});
+
+// Laser view mode toggle
+document.getElementById('laser-mode-btn').addEventListener('click', () => {
+  laserMode = laserMode === 'points' ? 'rays' : 'points';
+  document.getElementById('laser-mode-btn').textContent = laserMode;
+  initialized['fig-laser'] = false;
+});
+
+// Camera prev/next
+document.getElementById('cam-prev').addEventListener('click', () => {
+  if (cameraFrames.length) { camIdx = (camIdx - 1 + cameraFrames.length) % cameraFrames.length; renderCamera(); }
+});
+document.getElementById('cam-next').addEventListener('click', () => {
+  if (cameraFrames.length) { camIdx = (camIdx + 1) % cameraFrames.length; renderCamera(); }
+});
+
+// Planner layer toggles
+document.querySelectorAll('#planner-opts input[type=checkbox]').forEach(cb => {
+  cb.addEventListener('change', () => {
+    plannerLayers[cb.dataset.layer] = cb.checked;
+    initialized['fig-planner'] = false;
+  });
+});
+
+// Panels dropdown toggle
+document.getElementById('btn-panels').addEventListener('click', (e) => {
+  e.stopPropagation();
+  document.getElementById('panels-menu').classList.toggle('open');
+});
+document.addEventListener('click', (e) => {
+  const menu = document.getElementById('panels-menu');
+  if (!menu.contains(e.target)) menu.classList.remove('open');
+});
+
+/* ── Column resize drag ──────────────────────────────────────────── */
+(function initColumnResize() {
+  const cols = [document.getElementById('col-0'),
+                document.getElementById('col-1'),
+                document.getElementById('col-2')];
+  const handles = [document.getElementById('resize-0'),
+                   document.getElementById('resize-1')];
+
+  handles.forEach((handle, idx) => {
+    let startX, startLeft, startRight;
+    function onDown(e) {
+      e.preventDefault();
+      handle.classList.add('active');
+      startX = e.clientX;
+      startLeft = cols[idx].getBoundingClientRect().width;
+      startRight = cols[idx+1].getBoundingClientRect().width;
+      document.addEventListener('mousemove', onMove);
+      document.addEventListener('mouseup', onUp);
+    }
+    function onMove(e) {
+      const dx = e.clientX - startX;
+      const newLeft = Math.max(100, startLeft + dx);
+      const newRight = Math.max(100, startRight - dx);
+      cols[idx].style.flex = '0 0 ' + newLeft + 'px';
+      cols[idx+1].style.flex = '0 0 ' + newRight + 'px';
+    }
+    function onUp() {
+      handle.classList.remove('active');
+      document.removeEventListener('mousemove', onMove);
+      document.removeEventListener('mouseup', onUp);
+      scalePanels();
+    }
+    handle.addEventListener('mousedown', onDown);
+  });
+})();
+
+/* ── Auto-scale panels on window resize ─────────────────────────── */
+let _scaleTimer;
+window.addEventListener('resize', () => {
+  clearTimeout(_scaleTimer);
+  _scaleTimer = setTimeout(scalePanels, 150);
+});
+
+/* ── Boot ──────────────────────────────────────────────────────────── */
+applyTheme();
+connect();
+</script>
+</body>
+</html>
