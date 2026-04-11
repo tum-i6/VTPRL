@@ -134,11 +134,29 @@ VTPRL/
 
 ## Getting started
 
-### 1. Start the Unity simulator
+### 1. Clone the repository
+
+Clone with `--recurse-submodules` to fetch all dependencies in one step:
+
+```bash
+git clone --recurse-submodules https://github.com/tum-i6/VTPRL
+```
+
+If the repository was already cloned without submodules, initialise them with:
+
+```bash
+git submodule update --init --recursive
+```
+
+### 2. Obtain the Unity simulator
+
+The latest versions of the pre-built Unity simulator executable is **not** included in this repository. It is available by request. Place the executable in `environment/simulator` — it will be launched separately from the Python agent.
+
+### 3. Start the Unity simulator
 
 Launch the VTPRL simulator executable for your platform. The simulator starts a gRPC server and waits for agent connections on the port configured in `configuration.xml` (default `9092`).
 
-### 2. Install Python dependencies
+### 4. Install Python dependencies
 
 The recommended setup uses Docker (GPU-accelerated when possible):
 
@@ -168,7 +186,7 @@ docker run --gpus all --shm-size=512m \
 
 > **Note:** DART is not supported natively on Windows — use Docker or WSL. See `Docker/Commands` for platform-specific examples including WSL2 on Windows 11.
 
-### 3. Run training or evaluation
+### 5. Run training or evaluation
 
 ```bash
 cd workspace/agent
@@ -511,8 +529,8 @@ Developed at the [Chair of Robotics, Artificial Intelligence and Real-time Syste
 
 This work has been performed in the following projects:
 
-- **AI4DI** — Artificial Intelligence for Digitizing Industry, under grant agreement No. 826060. Co-funded by grants from Germany, Austria, Finland, France, Norway, Latvia, Belgium, Italy, Switzerland, and the Czech Republic, and by the Electronic Component Systems for European Leadership Joint Undertaking (ECSEL JU).
-- **A-IQ READY** — Artificial Intelligence using Quantum Measured Information for Realtime Distributed Systems at the Edge, under grant agreement No. 101096658. Funded within the Chips Joint Undertaking (Chips JU) — the Public-Private Partnership for research, development, and innovation under Horizon Europe — and National Authorities.
+- **[AI4DI](https://ai4di.eu/)** — Artificial Intelligence for Digitizing Industry, under grant agreement No. 826060. Co-funded by grants from Germany, Austria, Finland, France, Norway, Latvia, Belgium, Italy, Switzerland, and the Czech Republic, and by the Electronic Component Systems for European Leadership Joint Undertaking (ECSEL JU).
+- **[A-IQ READY](https://www.aiqready.eu/)** — Artificial Intelligence using Quantum Measured Information for Realtime Distributed Systems at the Edge, under grant agreement No. 101096658. Funded within the Chips Joint Undertaking (Chips JU) — the Public-Private Partnership for research, development, and innovation under Horizon Europe — and National Authorities.
 
 <p align="center">
   <img src="/resources/sim_ai4di_image.png?raw=true" alt="VTPRL Manipulator Environment" width="48%"/>
