@@ -134,7 +134,16 @@ VTPRL/
 
 ## Getting started
 
-### 1. Clone the repository
+### 1. Install Git LFS
+
+This repository uses [Git Large File Storage (LFS)](https://git-lfs.com/) for binary assets. Install and configure it **before** cloning:
+
+```bash
+# Install Git LFS (one-time system setup)
+git lfs install
+```
+
+### 2. Clone the repository
 
 Clone with `--recurse-submodules` to fetch all dependencies in one step:
 
@@ -148,15 +157,15 @@ If the repository was already cloned without submodules, initialise them with:
 git submodule update --init --recursive
 ```
 
-### 2. Obtain the Unity simulator
+### 3. Obtain the Unity simulator
 
 The latest versions of the pre-built Unity simulator executable is **not** included in this repository. It is available by request. Place the executable in `environment/simulator` — it will be launched separately from the Python agent.
 
-### 3. Start the Unity simulator
+### 4. Start the Unity simulator
 
 Launch the VTPRL simulator executable for your platform. The simulator starts a gRPC server and waits for agent connections on the port configured in `configuration.xml` (default `9092`).
 
-### 4. Install Python dependencies
+### 5. Install Python dependencies
 
 The recommended setup uses Docker (GPU-accelerated when possible):
 
@@ -186,7 +195,7 @@ docker run --gpus all --shm-size=512m \
 
 > **Note:** DART is not supported natively on Windows — use Docker or WSL. See `Docker/Commands` for platform-specific examples including WSL2 on Windows 11.
 
-### 5. Run training or evaluation
+### 6. Run training or evaluation
 
 ```bash
 cd workspace/agent
