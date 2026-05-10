@@ -751,7 +751,7 @@ class WarehouseUnityEnv(gym.Env):
             self._last_observation = flat_obs
         if time_step_update:
             self.time_step += 1
-            self._done = self.time_step >= self.max_time_steps
+            self._done = self.time_step >= self.max_time_steps or self.success or self.collision
 
         self._last_reward = float(np.sum(self._last_rewards))
         info = {
