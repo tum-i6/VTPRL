@@ -739,7 +739,7 @@ class WarehouseUnityEnv(gym.Env):
                             per_robot_entry['agent_action'] = prev_entry['agent_action']
                 self._per_robot_monitor_cache.append(per_robot_entry)
 
-            self.success = any(successes)
+            self.success = all(successes) if successes else False
             self.collision = any(collisions)
             self._last_rewards = np.array(rewards, dtype=np.float32)
             flat_obs = np.concatenate(obs_chunks) if obs_chunks else np.zeros(self.observation_dim, dtype=np.float32)
